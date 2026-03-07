@@ -231,17 +231,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 				m.eqCursor--
 			}
 		} else {
-			m.player.Seek(-5 * time.Second)
-			if m.mpris != nil {
-				m.mpris.EmitSeeked(m.player.Position().Microseconds())
-			}
+			m.doSeek(-5 * time.Second)
 		}
 
 	case "shift+left":
-		m.player.Seek(-m.seekStepLarge)
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
-		}
+		m.doSeek(-m.seekStepLarge)
 
 	case "right":
 		if m.focus == focusEQ {
@@ -249,17 +243,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 				m.eqCursor++
 			}
 		} else {
-			m.player.Seek(5 * time.Second)
-			if m.mpris != nil {
-				m.mpris.EmitSeeked(m.player.Position().Microseconds())
-			}
+			m.doSeek(5 * time.Second)
 		}
 
 	case "shift+right":
-		m.player.Seek(m.seekStepLarge)
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
-		}
+		m.doSeek(m.seekStepLarge)
 
 	case "up", "k":
 		if m.focus == focusEQ {
@@ -287,6 +275,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "enter":
 		if m.focus == focusPlaylist {
+			// No-op only if this exact track is still buffering.
+			if m.buffering && m.plCursor == m.playlist.Index() {
+				break
+			}
 			m.scrobbleCurrent()
 			m.playlist.SetIndex(m.plCursor)
 			cmd := m.playCurrentTrack()
@@ -487,8 +479,8 @@ func (m *Model) saveTrack() tea.Cmd {
 		return nil
 	}
 
-	// yt-dlp tracks: async download directly to ~/Music/cliamp/.
-	if playlist.IsYTDL(track.Path) {
+	// YouTube/yt-dlp tracks: async download directly to ~/Music/cliamp/.
+	if playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path) {
 		m.saveMsg = "Downloading..."
 		m.saveMsgTTL = 600 // cleared by ytdlSavedMsg
 		return saveYTDLCmd(track.Path, saveDir)

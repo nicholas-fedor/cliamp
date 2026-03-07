@@ -7,10 +7,117 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/gopxl/beep/v2"
 )
+
+// ytdlCookiesFrom is the browser name for --cookies-from-browser (e.g. "chrome").
+// Set via SetYTDLCookiesFrom at startup.
+var ytdlCookiesFrom string
+
+// SetYTDLCookiesFrom configures yt-dlp to use cookies from the given browser
+// for YouTube Music playback (e.g. "chrome", "firefox", "brave").
+func SetYTDLCookiesFrom(browser string) {
+	ytdlCookiesFrom = browser
+}
+
+// YTDLPAvailable reports whether yt-dlp is installed and on PATH.
+func YTDLPAvailable() bool {
+	_, err := exec.LookPath("yt-dlp")
+	return err == nil
+}
+
+// FFmpegAvailable reports whether ffmpeg is installed and on PATH.
+func FFmpegAvailable() bool {
+	_, err := exec.LookPath("ffmpeg")
+	return err == nil
+}
+
+// InstallYTDLP attempts to install yt-dlp using the system package manager.
+// Returns nil on success. The caller should re-check YTDLPAvailable() after.
+func InstallYTDLP() error {
+	switch runtime.GOOS {
+	case "darwin":
+		if _, err := exec.LookPath("brew"); err == nil {
+			cmd := exec.Command("brew", "install", "yt-dlp")
+			cmd.Stdout = os.Stderr
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		}
+		// Fall through to pip
+	case "linux":
+		if _, err := exec.LookPath("apt-get"); err == nil {
+			cmd := exec.Command("sudo", "apt-get", "install", "-y", "yt-dlp")
+			cmd.Stdout = os.Stderr
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		}
+		if _, err := exec.LookPath("pacman"); err == nil {
+			cmd := exec.Command("sudo", "pacman", "-S", "--noconfirm", "yt-dlp")
+			cmd.Stdout = os.Stderr
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		}
+	}
+	// Fallback: pip/pipx
+	if path, err := exec.LookPath("pipx"); err == nil {
+		cmd := exec.Command(path, "install", "yt-dlp")
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	if path, err := exec.LookPath("pip3"); err == nil {
+		cmd := exec.Command(path, "install", "yt-dlp")
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	return fmt.Errorf("no supported package manager found — install manually: https://github.com/yt-dlp/yt-dlp#installation")
+}
+
+// YtdlpInstallHint returns a platform-specific install command suggestion.
+func YtdlpInstallHint() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "brew install yt-dlp"
+	case "linux":
+		if _, err := exec.LookPath("apt-get"); err == nil {
+			return "sudo apt install yt-dlp"
+		}
+		if _, err := exec.LookPath("pacman"); err == nil {
+			return "sudo pacman -S yt-dlp"
+		}
+		return "pip install yt-dlp"
+	case "windows":
+		return "winget install yt-dlp"
+	default:
+		return "pip install yt-dlp"
+	}
+}
+
+// ffmpegInstallHint returns a platform-specific install command suggestion.
+func ffmpegInstallHint() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "brew install ffmpeg"
+	case "linux":
+		if _, err := exec.LookPath("apt-get"); err == nil {
+			return "sudo apt install ffmpeg"
+		}
+		if _, err := exec.LookPath("pacman"); err == nil {
+			return "sudo pacman -S ffmpeg"
+		}
+		return "see https://ffmpeg.org/download.html"
+	case "windows":
+		return "winget install ffmpeg"
+	default:
+		return "see https://ffmpeg.org/download.html"
+	}
+}
 
 // ytdlPipeStreamer streams PCM audio from a yt-dlp | ffmpeg pipe chain.
 // yt-dlp downloads the best audio and writes raw data to stdout; ffmpeg reads
@@ -23,11 +130,14 @@ type ytdlPipeStreamer struct {
 	ytdlErr   chan error    // yt-dlp exit error from monitoring goroutine
 	buf       [pcmFrameSize32]byte
 	f32       bool // true = f32le, false = s16le
+	pos       int  // samples consumed so far
+	closeOnce sync.Once
 	err       error
 }
 
 func (y *ytdlPipeStreamer) Stream(samples [][2]float64) (int, bool) {
 	n, ok := streamFromReader(y.reader, samples, y.buf[:], y.f32, &y.err)
+	y.pos += n
 	// On EOF with no frames read, check if yt-dlp failed (e.g. invalid URL).
 	if n == 0 {
 		select {
@@ -43,26 +153,29 @@ func (y *ytdlPipeStreamer) Stream(samples [][2]float64) (int, bool) {
 
 func (y *ytdlPipeStreamer) Err() error     { return y.err }
 func (y *ytdlPipeStreamer) Len() int       { return 0 }
-func (y *ytdlPipeStreamer) Position() int  { return 0 }
+func (y *ytdlPipeStreamer) Position() int  { return y.pos }
 func (y *ytdlPipeStreamer) Seek(int) error { return nil }
 
 func (y *ytdlPipeStreamer) Close() error {
-	// Kill both processes to stop downloading/decoding.
-	if y.ffmpegCmd.Process != nil {
-		y.ffmpegCmd.Process.Kill()
-	}
-	if y.ytdlCmd.Process != nil {
-		y.ytdlCmd.Process.Kill()
-	}
-	y.pipe.Close()
-	// Wait for both to prevent zombie processes.
-	y.ffmpegCmd.Wait()
-	y.ytdlCmd.Wait()
-	// Drain the error channel so the monitor goroutine can exit.
-	select {
-	case <-y.ytdlErr:
-	default:
-	}
+	y.closeOnce.Do(func() {
+		// Kill both processes to stop downloading/decoding.
+		if y.ytdlCmd.Process != nil {
+			y.ytdlCmd.Process.Kill()
+		}
+		if y.ffmpegCmd.Process != nil {
+			y.ffmpegCmd.Process.Kill()
+		}
+		y.pipe.Close()
+		// Wait in background to prevent blocking quit/seek.
+		go func() {
+			y.ffmpegCmd.Wait()
+			// Drain error channel so monitor goroutine can exit.
+			select {
+			case <-y.ytdlErr:
+			default:
+			}
+		}()
+	})
 	return nil
 }
 
@@ -70,10 +183,10 @@ func (y *ytdlPipeStreamer) Close() error {
 // and returns a streaming PCM decoder.
 func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth int) (*ytdlPipeStreamer, beep.Format, error) {
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		return nil, beep.Format{}, fmt.Errorf("yt-dlp is required to play this URL — install it with your package manager")
+		return nil, beep.Format{}, fmt.Errorf("yt-dlp is required — install: %s", YtdlpInstallHint())
 	}
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required to play this URL — install it with your package manager")
+		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required — install: %s", ffmpegInstallHint())
 	}
 
 	// os.Pipe connects yt-dlp stdout → ffmpeg stdin.
@@ -83,12 +196,19 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth int) (*ytdlPipe
 	}
 
 	// Start yt-dlp: download best audio to stdout.
-	ytdlCmd := exec.Command("yt-dlp",
-		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio",
+	// Prefer direct HTTPS/HTTP streams over HLS (m3u8). HLS requires segment
+	// downloading and muxing which doesn't pipe cleanly to stdout.
+	ytdlArgs := []string{
+		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio",
 		"--no-playlist",
+		"--no-warnings",
 		"-o", "-",
-		pageURL,
-	)
+	}
+	if ytdlCookiesFrom != "" {
+		ytdlArgs = append(ytdlArgs, "--cookies-from-browser", ytdlCookiesFrom)
+	}
+	ytdlArgs = append(ytdlArgs, pageURL)
+	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
 	ytdlCmd.Stdout = pw
 	// Capture stderr for error messages.
 	var ytdlStderr bytes.Buffer
@@ -111,6 +231,8 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth int) (*ytdlPipe
 		"pipe:1",
 	)
 	ffmpegCmd.Stdin = pr
+	var ffmpegStderr bytes.Buffer
+	ffmpegCmd.Stderr = &ffmpegStderr
 	ffmpegPipe, err := ffmpegCmd.StdoutPipe()
 	if err != nil {
 		pw.Close()
@@ -165,7 +287,111 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth int) (*ytdlPipe
 	}, format, nil
 }
 
-// buildYTDLPipeline creates a non-seekable trackPipeline for a yt-dlp URL.
+// decodeYTDLPipeAt starts a yt-dlp | ffmpeg pipe chain seeking to a given offset.
+// Uses --download-sections to skip to the desired position.
+func decodeYTDLPipeAt(pageURL string, startSec int, sr beep.SampleRate, bitDepth int) (*ytdlPipeStreamer, beep.Format, error) {
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		return nil, beep.Format{}, fmt.Errorf("yt-dlp is required — install: %s", YtdlpInstallHint())
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required — install: %s", ffmpegInstallHint())
+	}
+
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		return nil, beep.Format{}, fmt.Errorf("os.Pipe: %w", err)
+	}
+
+	// Use regular yt-dlp (no --download-sections, which re-muxes and breaks piping).
+	// Instead, seek via ffmpeg -ss on the decode side.
+	ytdlArgs := []string{
+		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio",
+		"--no-playlist",
+		"--no-warnings",
+		"-o", "-",
+	}
+	if ytdlCookiesFrom != "" {
+		ytdlArgs = append(ytdlArgs, "--cookies-from-browser", ytdlCookiesFrom)
+	}
+	ytdlArgs = append(ytdlArgs, pageURL)
+	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
+	ytdlCmd.Stdout = pw
+	var ytdlStderr bytes.Buffer
+	ytdlCmd.Stderr = &ytdlStderr
+	if err := ytdlCmd.Start(); err != nil {
+		pr.Close()
+		pw.Close()
+		return nil, beep.Format{}, fmt.Errorf("yt-dlp start: %w", err)
+	}
+
+	// Use ffmpeg -ss for seeking: skip to startSec in the input stream.
+	pcmFmt, codec, precision := ffmpegPCMArgs(bitDepth)
+	ffmpegArgs := []string{}
+	if startSec > 0 {
+		ffmpegArgs = append(ffmpegArgs, "-ss", strconv.Itoa(startSec))
+	}
+	ffmpegArgs = append(ffmpegArgs,
+		"-i", "pipe:0",
+		"-f", pcmFmt,
+		"-acodec", codec,
+		"-ar", strconv.Itoa(int(sr)),
+		"-ac", "2",
+		"-loglevel", "error",
+		"pipe:1",
+	)
+	ffmpegCmd := exec.Command("ffmpeg", ffmpegArgs...)
+	ffmpegCmd.Stdin = pr
+	var ffmpegStderr bytes.Buffer
+	ffmpegCmd.Stderr = &ffmpegStderr
+
+	ffmpegPipe, err := ffmpegCmd.StdoutPipe()
+	if err != nil {
+		ytdlCmd.Process.Kill()
+		pr.Close()
+		pw.Close()
+		return nil, beep.Format{}, fmt.Errorf("ffmpeg pipe: %w", err)
+	}
+	if err := ffmpegCmd.Start(); err != nil {
+		ytdlCmd.Process.Kill()
+		pr.Close()
+		pw.Close()
+		return nil, beep.Format{}, fmt.Errorf("ffmpeg start: %w", err)
+	}
+
+	format := beep.Format{
+		SampleRate:  sr,
+		NumChannels: 2,
+		Precision:   precision,
+	}
+
+	ytdlErrCh := make(chan error, 1)
+	go func() {
+		err := ytdlCmd.Wait()
+		pw.Close() // signal EOF to ffmpeg
+		if err != nil {
+			stderr := bytes.TrimSpace(ytdlStderr.Bytes())
+			if len(stderr) > 0 {
+				ytdlErrCh <- fmt.Errorf("yt-dlp: %s", stderr)
+			} else {
+				ytdlErrCh <- fmt.Errorf("yt-dlp: %w", err)
+			}
+		} else {
+			ytdlErrCh <- nil
+		}
+	}()
+
+	return &ytdlPipeStreamer{
+		ytdlCmd:   ytdlCmd,
+		ffmpegCmd: ffmpegCmd,
+		pipe:      ffmpegPipe,
+		reader:    bufio.NewReaderSize(ffmpegPipe, 64*1024),
+		ytdlErr:   ytdlErrCh,
+		f32:       bitDepth == 32,
+	}, format, nil
+}
+
+// buildYTDLPipeline creates a trackPipeline for a yt-dlp URL.
+// Seeking is supported by restarting yt-dlp with --download-sections.
 func (p *Player) buildYTDLPipeline(pageURL string) (*trackPipeline, error) {
 	p.streamTitle.Store("")
 
@@ -174,11 +400,47 @@ func (p *Player) buildYTDLPipeline(pageURL string) (*trackPipeline, error) {
 		return nil, err
 	}
 
+	// Pre-fill: block until yt-dlp + ffmpeg produce initial audio data.
+	// This runs in a tea.Cmd goroutine (not the UI thread), ensuring the
+	// speaker goroutine won't block on an empty pipe and hold its lock
+	// (which would freeze the UI).
+	if _, err := decoder.reader.Peek(1); err != nil {
+		decoder.Close()
+		return nil, fmt.Errorf("waiting for audio data: %w", err)
+	}
+
 	return &trackPipeline{
 		decoder:  decoder,
 		stream:   decoder,
 		format:   format,
 		seekable: false,
 		path:     pageURL,
+		ytdlSeek: true, // marks this pipeline as seekable via yt-dlp restart
+	}, nil
+}
+
+// buildYTDLPipelineAt creates a yt-dlp pipeline starting at a specific time offset.
+func (p *Player) buildYTDLPipelineAt(pageURL string, startSec int) (*trackPipeline, error) {
+	p.streamTitle.Store("")
+
+	decoder, format, err := decodeYTDLPipeAt(pageURL, startSec, p.sr, p.bitDepth)
+	if err != nil {
+		return nil, err
+	}
+
+	// Pre-fill: block until audio data arrives (see buildYTDLPipeline).
+	if _, err := decoder.reader.Peek(1); err != nil {
+		decoder.Close()
+		return nil, fmt.Errorf("waiting for audio data: %w", err)
+	}
+
+	return &trackPipeline{
+		decoder:      decoder,
+		stream:       decoder,
+		format:       format,
+		seekable:     false,
+		path:         pageURL,
+		ytdlSeek:     true,
+		streamOffset: time.Duration(startSec) * time.Second,
 	}, nil
 }

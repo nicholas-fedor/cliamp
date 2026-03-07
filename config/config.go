@@ -59,24 +59,72 @@ func (s SpotifyConfig) IsSet() bool {
 	return !s.Disabled && s.ClientID != ""
 }
 
+// YouTubeMusicConfig holds settings for the YouTube Music provider.
+// If no client_id/client_secret are set, built-in fallback credentials are
+// used automatically (same pattern as Spotify).
+type YouTubeMusicConfig struct {
+	Disabled     bool   // true only when user explicitly sets enabled = false
+	Enabled      bool   // true when [ytmusic] section exists (even without credentials)
+	ClientID     string // Google Cloud OAuth2 client ID (overrides built-in fallback)
+	ClientSecret string // Google Cloud OAuth2 client secret (overrides built-in fallback)
+	CookiesFrom  string // browser name for yt-dlp --cookies-from-browser (e.g. "chrome", "firefox")
+}
+
+// IsSet reports whether the YouTube providers should be shown.
+// Returns true when any of [yt], [youtube], or [ytmusic] config sections exist,
+// or when the --provider flag selects a YouTube provider (even without config).
+func (y YouTubeMusicConfig) IsSet() bool {
+	return !y.Disabled && y.Enabled
+}
+
+// IsSetOrFallback returns true when YouTube providers should be enabled,
+// either via config or because fallback credentials are available.
+func (y YouTubeMusicConfig) IsSetOrFallback(fallbackFn func() (string, string)) bool {
+	if y.Disabled {
+		return false
+	}
+	if y.Enabled {
+		return true
+	}
+	// Even without a config section, enable if fallback credentials exist.
+	if fallbackFn != nil {
+		id, secret := fallbackFn()
+		return id != "" && secret != ""
+	}
+	return false
+}
+
+// ResolveCredentials returns the user's configured credentials, or falls back
+// to the built-in pool. Returns empty strings only when the pool is also empty.
+func (y YouTubeMusicConfig) ResolveCredentials(fallbackFn func() (string, string)) (clientID, clientSecret string) {
+	if y.ClientID != "" && y.ClientSecret != "" {
+		return y.ClientID, y.ClientSecret
+	}
+	if fallbackFn != nil {
+		return fallbackFn()
+	}
+	return "", ""
+}
+
 // Config holds user preferences loaded from the config file.
 type Config struct {
-	Volume          float64     // dB, range [-30, +6]
-	EQ              [10]float64 // per-band gain in dB, range [-12, +12]
-	EQPreset        string      // preset name, or "" for custom
-	Repeat          string      // "off", "all", or "one"
+	Volume          float64            // dB, range [-30, +6]
+	EQ              [10]float64        // per-band gain in dB, range [-12, +12]
+	EQPreset        string             // preset name, or "" for custom
+	Repeat          string             // "off", "all", or "one"
 	Shuffle         bool
 	Mono            bool
-	SeekStepLarge   int             // seconds for Shift+Left/Right seek jumps
-	Provider        string          // default provider: "radio", "navidrome", "spotify" (default "radio")
-	Theme           string          // theme name, or "" for ANSI default
-	Visualizer      string          // visualizer mode name, or "" for default (Bars)
-	SampleRate      int             // output sample rate: 22050, 44100, 48000, 96000, 192000
-	BufferMs        int             // speaker buffer in milliseconds (50–500)
-	ResampleQuality int             // beep resample quality factor (1–4)
-	BitDepth        int             // PCM bit depth for FFmpeg output: 16 or 32
-	Navidrome       NavidromeConfig // optional Navidrome/Subsonic server credentials
-	Spotify         SpotifyConfig   // optional Spotify provider (requires Premium)
+	SeekStepLarge   int                // seconds for Shift+Left/Right seek jumps
+	Provider        string             // default provider: "radio", "navidrome", "spotify", "ytmusic" (default "radio")
+	Theme           string             // theme name, or "" for ANSI default
+	Visualizer      string             // visualizer mode name, or "" for default (Bars)
+	SampleRate      int                // output sample rate: 22050, 44100, 48000, 96000, 192000
+	BufferMs        int                // speaker buffer in milliseconds (50–500)
+	ResampleQuality int                // beep resample quality factor (1–4)
+	BitDepth        int                // PCM bit depth for FFmpeg output: 16 or 32
+	Navidrome       NavidromeConfig    // optional Navidrome/Subsonic server credentials
+	Spotify         SpotifyConfig      // optional Spotify provider (requires Premium)
+	YouTubeMusic    YouTubeMusicConfig // optional YouTube Music provider
 }
 
 // Default returns a Config with sensible defaults.
@@ -124,6 +172,13 @@ func Load() (Config, error) {
 		// Section header: [navidrome]
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			section = strings.ToLower(line[1 : len(line)-1])
+			// Mark providers as enabled when their section exists.
+			// [yt], [youtube], and [ytmusic] all configure the same YouTube providers.
+			switch section {
+			case "yt", "youtube", "ytmusic":
+				cfg.YouTubeMusic.Enabled = true
+				section = "ytmusic" // normalize for key parsing below
+			}
 			continue
 		}
 
@@ -155,6 +210,17 @@ func Load() (Config, error) {
 				cfg.Spotify.Disabled = strings.ToLower(val) == "false"
 			case "client_id":
 				cfg.Spotify.ClientID = strings.Trim(val, `"'`)
+			}
+		case "ytmusic":
+			switch key {
+			case "enabled":
+				cfg.YouTubeMusic.Disabled = strings.ToLower(val) == "false"
+			case "client_id":
+				cfg.YouTubeMusic.ClientID = strings.Trim(val, `"'`)
+			case "client_secret":
+				cfg.YouTubeMusic.ClientSecret = strings.Trim(val, `"'`)
+			case "cookies_from":
+				cfg.YouTubeMusic.CookiesFrom = strings.Trim(val, `"'`)
 			}
 		default:
 			switch key {

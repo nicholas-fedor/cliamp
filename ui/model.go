@@ -187,6 +187,12 @@ type Model struct {
 	// Track info overlay (metadata details)
 	showInfo bool
 
+	// yt-dlp seek debounce: accumulate into a target position and fire once.
+	seekActive    bool          // true from first keypress until seek completes
+	seekTargetPos time.Duration // absolute target position
+	seekTimer     int           // tick countdown for debounce (0 = idle)
+	seekGrace     int           // ticks to suppress reconnect after seek completes
+
 	// Full-screen visualizer mode (Shift+V)
 	fullVis bool
 
@@ -627,8 +633,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// Dynamic frame width: use terminal width (capped at a reasonable max).
-		frameW := min(msg.Width, max(80, msg.Width-2))
+		// Dynamic frame width: use full terminal width.
+		frameW := msg.Width
 		frameStyle = frameStyle.Width(frameW)
 		panelWidth = frameW - 6 // subtract horizontal padding (3 left + 3 right)
 		if m.fullVis {
@@ -658,7 +664,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		fixedLines := lipgloss.Height(probeFrame) - 1 // subtract the 1-line placeholder
 		m.plVisible = max(3, m.height-fixedLines)
 
+	case seekTickMsg:
+		// Async yt-dlp seek completed.
+		// Only clear seekActive if no new seek keypresses arrived during loading.
+		if m.seekTimer <= 0 {
+			m.seekActive = false
+		}
+		// Grace period: suppress reconnect for a few ticks after seek completes.
+		m.seekGrace = 10
+		if m.mpris != nil {
+			m.mpris.EmitSeeked(m.player.Position().Microseconds())
+		}
+		return m, nil
+
 	case tickMsg:
+		// Process debounced yt-dlp seek.
+		var seekCmd tea.Cmd
+		if cmd := m.tickSeek(); cmd != nil {
+			seekCmd = cmd
+		}
 		// Expire temporary status messages.
 		if m.saveMsgTTL > 0 {
 			m.saveMsgTTL--
@@ -666,10 +690,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.saveMsg = ""
 			}
 		}
+		// Decrement seek grace period.
+		if m.seekGrace > 0 {
+			m.seekGrace--
+		}
 		// Surface stream errors (e.g., connection drops) and auto-reconnect streams.
-		if err := m.player.StreamErr(); err != nil {
+		// Suppress during yt-dlp seek and grace period — killing the old pipeline
+		// triggers a transient error that can persist for a few ticks.
+		if err := m.player.StreamErr(); err != nil && !m.seekActive && m.seekGrace == 0 {
 			track, idx := m.playlist.Current()
-			isStream := idx >= 0 && (track.Stream || playlist.IsYTDL(track.Path))
+			isStream := idx >= 0 && (track.Stream || playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path))
 			if isStream && m.reconnectAttempts < 5 {
 				// Schedule reconnect with exponential backoff: 1s, 2s, 4s, 8s, 16s
 				if m.reconnectAt.IsZero() {
@@ -730,6 +760,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		var cmds []tea.Cmd
+		if seekCmd != nil {
+			cmds = append(cmds, seekCmd)
+		}
 		if lyricCmd != nil {
 			cmds = append(cmds, lyricCmd)
 		}
@@ -808,8 +841,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tracksLoadedMsg:
-		wasPlaying := m.player.IsPlaying()
-		if !wasPlaying {
+		if !m.player.IsPlaying() {
 			m.player.Stop()
 			m.player.ClearPreload()
 		}
@@ -818,7 +850,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.plScroll = 0
 		m.focus = focusPlaylist
 		m.provLoading = false
-		if m.playlist.Len() > 0 && !wasPlaying {
+		if m.playlist.Len() > 0 && !m.player.IsPlaying() {
 			cmd := m.playCurrentTrack()
 			m.notifyMPRIS()
 			return m, cmd
@@ -1121,7 +1153,7 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		fetchCmd = fetchLyricsCmd(track.Artist, track.Title)
 	}
 
-	// Stream yt-dlp URLs (SoundCloud, YouTube, etc.) via pipe chain.
+	// Stream yt-dlp URLs (YouTube, SoundCloud, Bandcamp, etc.) via pipe chain.
 	if playlist.IsYTDL(track.Path) {
 		m.buffering = true
 		m.err = nil
@@ -1349,8 +1381,8 @@ func (m *Model) lyricsSyncable() bool {
 	if idx < 0 {
 		return false
 	}
-	// yt-dlp pipe streams report position 0.
-	if playlist.IsYTDL(track.Path) {
+	// YouTube/yt-dlp pipe streams report position 0.
+	if playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path) {
 		return false
 	}
 	// ICY radio streams: position counts from stream connect, not song start.

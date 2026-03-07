@@ -13,6 +13,7 @@ import (
 	"cliamp/external/navidrome"
 	"cliamp/external/radio"
 	"cliamp/external/spotify"
+	"cliamp/external/ytmusic"
 	"cliamp/mpris"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -54,11 +55,60 @@ func run(overrides config.Overrides, positional []string) error {
 		providers = append(providers, ui.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
 	}
 
+	var ytProviders ytmusic.Providers
+	// Enable YouTube providers if any [yt]/[youtube]/[ytmusic] config exists,
+	// or if the --provider flag selects a YouTube provider,
+	// or if fallback credentials are available.
+	ytWanted := cfg.YouTubeMusic.IsSetOrFallback(ytmusic.FallbackCredentials)
+	if !ytWanted {
+		// Also enable if --provider flag selects a YouTube provider.
+		switch cfg.Provider {
+		case "yt", "youtube", "ytmusic":
+			ytWanted = true
+		}
+	}
+	if ytWanted {
+		ytClientID, ytClientSecret := cfg.YouTubeMusic.ResolveCredentials(ytmusic.FallbackCredentials)
+		// Configure yt-dlp cookie source for YouTube Music uploads/private tracks.
+		if cfg.YouTubeMusic.CookiesFrom != "" {
+			player.SetYTDLCookiesFrom(cfg.YouTubeMusic.CookiesFrom)
+		}
+		if ytClientID == "" || ytClientSecret == "" {
+			fmt.Fprintf(os.Stderr, "YouTube: no credentials available (configure client_id/client_secret in config.toml)\n")
+		} else {
+			// YouTube playback requires yt-dlp. Check early and offer to install.
+			if !player.YTDLPAvailable() {
+				fmt.Fprintf(os.Stderr, "\nYouTube requires yt-dlp for audio playback.\n")
+				fmt.Fprintf(os.Stderr, "Install command: %s\n\n", player.YtdlpInstallHint())
+				fmt.Fprintf(os.Stderr, "Press Enter to install automatically, or Ctrl+C to skip... ")
+				fmt.Scanln()
+				fmt.Fprintf(os.Stderr, "Installing yt-dlp...\n")
+				if err := player.InstallYTDLP(); err != nil {
+					fmt.Fprintf(os.Stderr, "Installation failed: %v\n", err)
+					fmt.Fprintf(os.Stderr, "YouTube providers disabled. Install manually and restart.\n\n")
+				} else {
+					fmt.Fprintf(os.Stderr, "yt-dlp installed successfully!\n\n")
+				}
+			}
+			if player.YTDLPAvailable() {
+				ytProviders = ytmusic.New(nil, ytClientID, ytClientSecret, cfg.YouTubeMusic.CookiesFrom != "")
+				providers = append(providers,
+					ui.ProviderEntry{Key: "yt", Name: "YouTube (All)", Provider: ytProviders.All},
+					ui.ProviderEntry{Key: "youtube", Name: "YouTube", Provider: ytProviders.Video},
+					ui.ProviderEntry{Key: "ytmusic", Name: "YouTube Music", Provider: ytProviders.Music},
+				)
+			}
+		}
+	}
+
 	localProv := local.New()
 
 	defer resolve.CleanupYTDL()
 	if spotifyProv != nil {
 		defer spotifyProv.Close()
+	}
+	if ytProviders.Music != nil {
+		defer ytProviders.Music.Close()
 	}
 
 	if len(positional) > 0 && (positional[0] == "search" || positional[0] == "search-sc") {
@@ -187,7 +237,7 @@ Audio engine:
   --bit-depth <n>         PCM bit depth: 16 (default) or 32 (lossless)
 
 Provider:
-  --provider <name>       Default provider: radio, navidrome, spotify (default: radio)
+  --provider <name>       Default provider: radio, navidrome, spotify, yt, youtube, ytmusic (default: radio)
 
 Appearance:
   --theme <name>          UI theme name
