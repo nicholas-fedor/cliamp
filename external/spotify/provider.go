@@ -2,14 +2,9 @@ package spotify
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,16 +16,12 @@ import (
 	"cliamp/playlist"
 )
 
-// maxResponseBody limits JSON API responses to 10 MB.
-const maxResponseBody = 10 << 20
-
-// SpotifyProvider implements playlist.Provider using the Spotify Web API
-// for playlist/track metadata and go-librespot for audio streaming.
-// playlistCache holds a snapshot_id and the fetched tracks for a playlist,
-// allowing us to skip re-fetching playlists that haven't changed.
+// SpotifyProvider implements playlist.Provider using go-librespot's spclient
+// for playlist/track metadata and audio streaming.
+// playlistCache holds fetched tracks for a playlist, allowing us to skip
+// re-fetching playlists that haven't changed.
 type playlistCache struct {
-	snapshotID string
-	tracks     []playlist.Track
+	tracks []playlist.Track
 }
 
 type SpotifyProvider struct {
@@ -109,88 +100,108 @@ func (p *SpotifyProvider) Close() {
 
 func (p *SpotifyProvider) Name() string { return "Spotify" }
 
-// Playlists returns the authenticated user's Spotify playlists.
+// Playlists returns the authenticated user's Spotify playlists via the
+// spclient protocol (works in all countries, bypasses api.spotify.com).
 func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	if err := p.ensureSession(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	var all []playlist.PlaylistInfo
-	offset := 0
-	limit := 50
+	rootlist, err := p.session.SpRootlist(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("spotify: list playlists: %w", err)
+	}
 
-	for {
-		query := url.Values{
-			"limit":  {fmt.Sprintf("%d", limit)},
-			"offset": {fmt.Sprintf("%d", offset)},
-			// Request only the fields we need to reduce payload size and API cost.
-			// Include snapshot_id for cache invalidation.
-			"fields": {"items(id,name,snapshot_id,items.total),total"},
-		}
+	contents := rootlist.GetContents()
+	if contents == nil {
+		return nil, fmt.Errorf("spotify: empty rootlist")
+	}
 
-		resp, err := p.webAPI(ctx, "GET", "/v1/me/playlists", query)
-		if err != nil {
-			return nil, fmt.Errorf("spotify: list playlists: %w", err)
+	// Collect playlist URIs from the rootlist. Filter to only actual playlists
+	// (skip folders, collections, etc.).
+	type plEntry struct {
+		uri    string
+		base62 string
+	}
+	var entries []plEntry
+	for _, item := range contents.GetItems() {
+		uri := item.GetUri()
+		if !strings.HasPrefix(uri, "spotify:playlist:") {
+			continue
 		}
+		base62 := strings.TrimPrefix(uri, "spotify:playlist:")
+		entries = append(entries, plEntry{uri: uri, base62: base62})
+	}
 
-		var result struct {
-			Items []struct {
-				ID         string `json:"id"`
-				Name       string `json:"name"`
-				SnapshotID string `json:"snapshot_id"`
-				Items      *struct {
-					Total int `json:"total"`
-				} `json:"items"`
-			} `json:"items"`
-			Total int `json:"total"`
-		}
-		if err := decodeBody(resp, &result); err != nil {
-			return nil, fmt.Errorf("spotify: parse playlists: %w", err)
-		}
+	// Fetch each playlist's name concurrently via spclient.
+	type nameResult struct {
+		idx   int
+		name  string
+		count int
+	}
+	results := make(chan nameResult, len(entries))
+	workers := min(len(entries), 8)
+	work := make(chan int, len(entries))
+	for i := range entries {
+		work <- i
+	}
+	close(work)
 
-		p.mu.Lock()
-		for _, item := range result.Items {
-			count := 0
-			if item.Items != nil {
-				count = item.Items.Total
-			}
-			all = append(all, playlist.PlaylistInfo{
-				ID:         item.ID,
-				Name:       item.Name,
-				TrackCount: count,
-			})
-			// Update snapshot_id in cache; if it changed, invalidate cached tracks.
-			if cached, ok := p.trackCache[item.ID]; ok {
-				if cached.snapshotID != item.SnapshotID {
-					delete(p.trackCache, item.ID)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for i := range work {
+				meta, err := p.session.SpPlaylistMetadata(ctx, entries[i].base62)
+				if err != nil {
+					results <- nameResult{idx: i, name: entries[i].base62}
+					continue
 				}
+				name := entries[i].base62
+				if attrs := meta.GetAttributes(); attrs != nil {
+					if n := attrs.GetName(); n != "" {
+						name = n
+					}
+				}
+				count := int(meta.GetLength())
+				results <- nameResult{idx: i, name: name, count: count}
 			}
-			// Store snapshot_id for later cache checks in Tracks().
-			if _, ok := p.trackCache[item.ID]; !ok && item.SnapshotID != "" {
-				p.trackCache[item.ID] = &playlistCache{snapshotID: item.SnapshotID}
-			}
-		}
-		p.mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	close(results)
 
-		if offset+limit >= result.Total {
-			break
-		}
-		offset += limit
+	// Collect results in order.
+	nameMap := make(map[int]nameResult, len(entries))
+	for r := range results {
+		nameMap[r.idx] = r
+	}
+
+	all := make([]playlist.PlaylistInfo, 0, len(entries))
+	for i, e := range entries {
+		r := nameMap[i]
+		all = append(all, playlist.PlaylistInfo{
+			ID:         e.base62,
+			Name:       r.name,
+			TrackCount: r.count,
+		})
 	}
 
 	return all, nil
 }
 
-// Tracks returns all tracks for the given Spotify playlist ID.
-// Track.Path is set to a spotify:track:<id> URI for the player to resolve.
-// Results are cached by snapshot_id; unchanged playlists skip the API call.
+// Tracks returns all tracks for the given Spotify playlist ID via the
+// spclient protocol. Track.Path is set to a spotify:track:<id> URI for
+// the player to resolve.
 func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	if err := p.ensureSession(); err != nil {
 		return nil, err
 	}
-	// Check cache — if we have tracks and the snapshot_id hasn't changed, return cached.
+	// Check cache.
 	p.mu.Lock()
 	if cached, ok := p.trackCache[playlistID]; ok && cached.tracks != nil {
 		tracks := cached.tracks
@@ -202,80 +213,89 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	var all []playlist.Track
-	offset := 0
-	limit := 100
+	// Resolve the playlist to get track URIs.
+	uri := "spotify:playlist:" + playlistID
+	spotCtx, err := p.session.SpContextResolve(ctx, uri)
+	if err != nil {
+		return nil, fmt.Errorf("spotify: list tracks: %w", err)
+	}
 
-	for {
-		query := url.Values{
-			"limit":  {fmt.Sprintf("%d", limit)},
-			"offset": {fmt.Sprintf("%d", offset)},
-			"fields": {"items(item(id,name,artists(name),album(name,release_date),duration_ms,track_number)),total"},
-		}
-
-		path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
-		resp, err := p.webAPI(ctx, "GET", path, query)
-		if err != nil {
-			return nil, fmt.Errorf("spotify: list tracks: %w", err)
-		}
-
-		type trackObj struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			Artists []struct {
-				Name string `json:"name"`
-			} `json:"artists"`
-			Album struct {
-				Name        string `json:"name"`
-				ReleaseDate string `json:"release_date"`
-			} `json:"album"`
-			DurationMs  int `json:"duration_ms"`
-			TrackNumber int `json:"track_number"`
-		}
-		var result struct {
-			Items []struct {
-				Item *trackObj `json:"item"`
-			} `json:"items"`
-			Total int `json:"total"`
-		}
-		if err := decodeBody(resp, &result); err != nil {
-			return nil, fmt.Errorf("spotify: parse tracks: %w", err)
-		}
-
-		for _, item := range result.Items {
-			t := item.Item
-			if t == nil || t.ID == "" {
-				continue // skip local/unavailable tracks
+	// Collect track URIs from the context pages.
+	var trackURIs []string
+	for _, page := range spotCtx.GetPages() {
+		for _, track := range page.GetTracks() {
+			trackURI := track.GetUri()
+			if strings.HasPrefix(trackURI, "spotify:track:") {
+				trackURIs = append(trackURIs, trackURI)
 			}
+		}
+	}
 
-			artists := make([]string, len(t.Artists))
-			for i, a := range t.Artists {
-				artists[i] = a.Name
-			}
+	// Fetch metadata for each track concurrently via spclient.
+	type trackResult struct {
+		idx   int
+		track playlist.Track
+	}
+	results := make(chan trackResult, len(trackURIs))
+	workers := min(len(trackURIs), 8)
+	work := make(chan int, len(trackURIs))
+	for i := range trackURIs {
+		work <- i
+	}
+	close(work)
 
-			var year int
-			if len(t.Album.ReleaseDate) >= 4 {
-				if y, err := strconv.Atoi(t.Album.ReleaseDate[:4]); err == nil {
-					year = y
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for i := range work {
+				spotID, err := librespot.SpotifyIdFromUri(trackURIs[i])
+				if err != nil {
+					results <- trackResult{idx: i, track: playlist.Track{Path: trackURIs[i]}}
+					continue
 				}
+
+				meta, err := p.session.SpTrackMetadata(ctx, *spotID)
+				if err != nil {
+					results <- trackResult{idx: i, track: playlist.Track{Path: trackURIs[i]}}
+					continue
+				}
+
+				var artistName string
+				if artists := meta.GetArtist(); len(artists) > 0 {
+					artistName = artists[0].GetName()
+				}
+				var albumName string
+				if album := meta.GetAlbum(); album != nil {
+					albumName = album.GetName()
+				}
+				var durSecs int
+				if d := meta.GetDuration(); d > 0 {
+					durSecs = int(d) / 1000
+				}
+
+				results <- trackResult{idx: i, track: playlist.Track{
+					Path:         trackURIs[i],
+					Title:        meta.GetName(),
+					Artist:       artistName,
+					Album:        albumName,
+					DurationSecs: durSecs,
+				}}
 			}
+		}()
+	}
+	wg.Wait()
+	close(results)
 
-			all = append(all, playlist.Track{
-				Path:         fmt.Sprintf("spotify:track:%s", t.ID),
-				Title:        t.Name,
-				Artist:       strings.Join(artists, ", "),
-				Album:        t.Album.Name,
-				Year:         year,
-				Stream:       false, // must be false: true causes togglePlayPause to stop+restart instead of pause/resume
-				DurationSecs: t.DurationMs / 1000,
-				TrackNumber:  t.TrackNumber,
-			})
-		}
-
-		if offset+limit >= result.Total {
-			break
-		}
-		offset += limit
+	// Collect results in order.
+	indexed := make(map[int]trackResult, len(trackURIs))
+	for r := range results {
+		indexed[r.idx] = r
+	}
+	all := make([]playlist.Track, 0, len(trackURIs))
+	for i := range trackURIs {
+		all = append(all, indexed[i].track)
 	}
 
 	// Cache the fetched tracks.
@@ -351,48 +371,4 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 
 	streamer := NewSpotifyStreamer(stream)
 	return streamer, streamer.Format(), streamer.Duration(), nil
-}
-
-// webAPI calls the Spotify Web API via the session with retry on 429.
-func (p *SpotifyProvider) webAPI(ctx context.Context, method, path string, query url.Values) (*http.Response, error) {
-	const maxRetries = 8
-	for attempt := range maxRetries {
-		resp, err := p.session.WebApi(ctx, method, path, query)
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode == http.StatusTooManyRequests {
-			resp.Body.Close()
-			// Parse Retry-After header (seconds), default to exponential backoff.
-			wait := time.Duration(1<<uint(attempt)) * time.Second
-			if ra := resp.Header.Get("Retry-After"); ra != "" {
-				if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
-					wait = time.Duration(secs) * time.Second
-				}
-			}
-			fmt.Fprintf(os.Stderr, "spotify: rate limited on %s, retrying in %v (attempt %d/%d)\n", path, wait, attempt+1, maxRetries)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(wait):
-				continue
-			}
-		}
-		if resp.StatusCode != http.StatusOK {
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
-			resp.Body.Close()
-			if readErr != nil {
-				return nil, fmt.Errorf("http status %s (failed to read body: %v)", resp.Status, readErr)
-			}
-			return nil, fmt.Errorf("http status %s: %s", resp.Status, string(body))
-		}
-		return resp, nil
-	}
-	return nil, fmt.Errorf("http status 429 after %d retries", maxRetries)
-}
-
-// decodeBody reads and decodes a JSON response body, then closes it.
-func decodeBody(resp *http.Response, v any) error {
-	defer resp.Body.Close()
-	return json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(v)
 }

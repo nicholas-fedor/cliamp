@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -19,18 +20,23 @@ import (
 
 	librespot "github.com/devgianlu/go-librespot"
 	librespotPlayer "github.com/devgianlu/go-librespot/player"
-	"github.com/devgianlu/go-librespot/session"
+	connectpb "github.com/devgianlu/go-librespot/proto/spotify/connectstate"
 	devicespb "github.com/devgianlu/go-librespot/proto/spotify/connectstate/devices"
+	extmetadatapb "github.com/devgianlu/go-librespot/proto/spotify/extendedmetadata"
+	metadatapb "github.com/devgianlu/go-librespot/proto/spotify/metadata"
+	playlist4pb "github.com/devgianlu/go-librespot/proto/spotify/playlist4"
+	"github.com/devgianlu/go-librespot/session"
+	"github.com/devgianlu/go-librespot/spclient"
 	"golang.org/x/oauth2"
 	spotifyoauth2 "golang.org/x/oauth2/spotify"
+	"google.golang.org/protobuf/proto"
 )
 
 // storedCreds holds persisted Spotify credentials for re-authentication.
 type storedCreds struct {
-	Username     string `json:"username"`
-	Data         []byte `json:"data"`
-	DeviceID     string `json:"device_id"`
-	RefreshToken string `json:"refresh_token,omitempty"` // OAuth2 refresh token for silent re-auth
+	Username string `json:"username"`
+	Data     []byte `json:"data"`
+	DeviceID string `json:"device_id"`
 }
 
 // CallbackPort is the fixed port for the OAuth2 callback server.
@@ -39,21 +45,19 @@ const CallbackPort = 19872
 
 // Session manages a go-librespot session and player for Spotify integration.
 type Session struct {
-	mu          sync.Mutex
-	sess        *session.Session
-	player      *librespotPlayer.Player
-	devID       string
-	clientID    string         // Spotify Developer app client ID
-	tokenSource oauth2.TokenSource // auto-refreshing OAuth2 token source
+	mu       sync.Mutex
+	sess     *session.Session
+	player   *librespotPlayer.Player
+	devID    string
+	clientID string // Spotify Developer app client ID
 }
 
 // NewSession creates a go-librespot session, using stored credentials if
 // available, otherwise starting an interactive OAuth2 flow.
-// clientID is the Spotify Developer app client ID for Web API access.
 func NewSession(ctx context.Context, clientID string) (*Session, error) {
 	creds, err := loadCreds()
 	if err == nil && creds.Username != "" && len(creds.Data) > 0 {
-		s, err := newSessionFromStored(ctx, clientID, creds, false)
+		s, err := newSessionFromStored(ctx, clientID, creds)
 		if err == nil {
 			return s, nil
 		}
@@ -69,13 +73,11 @@ func NewSessionSilent(ctx context.Context, clientID string) (*Session, error) {
 	if err != nil || creds.Username == "" || len(creds.Data) == 0 {
 		return nil, fmt.Errorf("no stored credentials")
 	}
-	return newSessionFromStored(ctx, clientID, creds, true)
+	return newSessionFromStored(ctx, clientID, creds)
 }
 
 // newSessionFromStored creates a session from stored credentials.
-// When silentOnly is true, it will not fall back to browser-based auth
-// if the silent token refresh fails.
-func newSessionFromStored(ctx context.Context, clientID string, creds *storedCreds, silentOnly bool) (*Session, error) {
+func newSessionFromStored(ctx context.Context, clientID string, creds *storedCreds) (*Session, error) {
 	devID := creds.DeviceID
 	if devID == "" {
 		devID = generateDeviceID()
@@ -94,41 +96,13 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 		return nil, fmt.Errorf("spotify: stored auth: %w", err)
 	}
 
-	// For stored credentials, we need a fresh Web API token via OAuth2.
-	// The spclient's login5 token is NOT suitable for Web API calls.
-	// Try silent refresh first (no browser), fall back to interactive.
-	var oauthToken *oauth2.Token
-	if creds.RefreshToken != "" {
-		token, err := silentTokenRefresh(clientID, creds.RefreshToken)
-		if err == nil {
-			oauthToken = token
-		}
-	}
-	if oauthToken == nil {
-		if silentOnly {
-			sess.Close()
-			return nil, fmt.Errorf("silent token refresh failed, interactive auth required")
-		}
-		token, err := doWebAPIAuth(clientID)
-		if err != nil {
-			sess.Close()
-			return nil, fmt.Errorf("stored session needs fresh Web API token: %w", err)
-		}
-		oauthToken = token
-	}
+	s := &Session{sess: sess, devID: devID, clientID: clientID}
 
-	// Create an auto-refreshing token source — handles expiry transparently.
-	conf := spotifyOAuthConfig(clientID)
-	ts := conf.TokenSource(context.Background(), oauthToken)
-
-	s := &Session{sess: sess, devID: devID, clientID: clientID, tokenSource: ts}
-
-	// Re-save credentials (including refresh token for next launch).
+	// Re-save credentials (device ID may have been generated).
 	if err := saveCreds(&storedCreds{
-		Username:     sess.Username(),
-		Data:         sess.StoredCredentials(),
-		DeviceID:     devID,
-		RefreshToken: oauthToken.RefreshToken,
+		Username: sess.Username(),
+		Data:     sess.StoredCredentials(),
+		DeviceID: devID,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "spotify: failed to save credentials: %v\n", err)
 	}
@@ -140,33 +114,13 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 	return s, nil
 }
 
-// oauthScopes are the Spotify Web API scopes needed for cliamp.
-// See: https://developer.spotify.com/documentation/web-api/concepts/scopes
-//
+// oauthScopes are the Spotify OAuth2 scopes needed for authentication and
+// streaming via go-librespot's spclient protocol.
 var oauthScopes = []string{
-	// Playlist browsing
+	"streaming",
 	"playlist-read-collaborative",
 	"playlist-read-private",
-	// Playlist modification (save queue, create playlists)
-	"playlist-modify-public",
-	"playlist-modify-private",
-	// Streaming audio
-	"streaming",
-	// Library (liked songs, saved albums)
-	"user-library-read",
-	"user-library-modify",
-	// User profile
 	"user-read-private",
-	// Playback state (current track, queue)
-	"user-read-playback-state",
-	"user-modify-playback-state",
-	"user-read-currently-playing",
-	// Recently played / top tracks
-	"user-read-recently-played",
-	"user-top-read",
-	// Following (artists, users)
-	"user-follow-read",
-	"user-follow-modify",
 }
 
 // spotifyOAuthConfig returns the OAuth2 config for the given client ID.
@@ -177,14 +131,6 @@ func spotifyOAuthConfig(clientID string) *oauth2.Config {
 		Scopes:      oauthScopes,
 		Endpoint:    spotifyoauth2.Endpoint,
 	}
-}
-
-// silentTokenRefresh uses a stored refresh token to get a new access token
-// without opening a browser.
-func silentTokenRefresh(clientID, refreshToken string) (*oauth2.Token, error) {
-	conf := spotifyOAuthConfig(clientID)
-	src := conf.TokenSource(context.Background(), &oauth2.Token{RefreshToken: refreshToken})
-	return src.Token()
 }
 
 // oauthCallbackHTML is the response sent to the browser after a successful OAuth2 callback.
@@ -237,17 +183,6 @@ func performOAuth2PKCE(clientID string) (*oauth2.Token, error) {
 	return token, nil
 }
 
-// doWebAPIAuth performs an OAuth2 PKCE flow to get a fresh Web API access token.
-// Opens a browser for user consent, returns the full token (including refresh token).
-func doWebAPIAuth(clientID string) (*oauth2.Token, error) {
-	token, err := performOAuth2PKCE(clientID)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println("Spotify: Web API token refreshed.")
-	return token, nil
-}
-
 func newInteractiveSession(ctx context.Context, clientID string) (*Session, error) {
 	devID := generateDeviceID()
 
@@ -273,21 +208,16 @@ func newInteractiveSession(ctx context.Context, clientID string) (*Session, erro
 		return nil, fmt.Errorf("spotify: session from token: %w", err)
 	}
 
-	// Persist stored credentials + refresh token for future sessions.
+	// Persist stored credentials for future sessions.
 	if err := saveCreds(&storedCreds{
-		Username:     sess.Username(),
-		Data:         sess.StoredCredentials(),
-		DeviceID:     devID,
-		RefreshToken: token.RefreshToken,
+		Username: sess.Username(),
+		Data:     sess.StoredCredentials(),
+		DeviceID: devID,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "spotify: failed to save credentials: %v\n", err)
 	}
 
-	// Create an auto-refreshing token source for Web API calls.
-	conf := spotifyOAuthConfig(clientID)
-	ts := conf.TokenSource(context.Background(), token)
-
-	s := &Session{sess: sess, devID: devID, clientID: clientID, tokenSource: ts}
+	s := &Session{sess: sess, devID: devID, clientID: clientID}
 	if err := s.initPlayer(); err != nil {
 		sess.Close()
 		return nil, err
@@ -326,46 +256,94 @@ func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bit
 	return s.player.NewStream(ctx, http.DefaultClient, spotID, bitrate, 0)
 }
 
-// WebApi calls the Spotify Web API using the OAuth2 access token.
-// This is the standard Web API token (not go-librespot's internal spclient token),
-// which has proper rate limits for api.spotify.com endpoints.
-func (s *Session) WebApi(ctx context.Context, method, path string, query url.Values) (*http.Response, error) {
+// Username returns the authenticated Spotify username.
+func (s *Session) Username() string {
 	s.mu.Lock()
-	ts := s.tokenSource
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	return s.sess.Username()
+}
 
-	var token string
-	if ts != nil {
-		tok, err := ts.Token()
-		if err != nil {
-			return nil, fmt.Errorf("refresh access token: %w", err)
-		}
-		token = tok.AccessToken
-	} else {
-		// Fall back to spclient token if no OAuth2 token source.
-		s.mu.Lock()
-		var err error
-		token, err = s.sess.Spclient().GetAccessToken(ctx, false)
-		s.mu.Unlock()
-		if err != nil {
-			return nil, fmt.Errorf("get access token: %w", err)
-		}
+// Spclient returns the underlying go-librespot spclient.
+func (s *Session) Spclient() *spclient.Spclient {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sess.Spclient()
+}
+
+// SpRootlist fetches the user's playlist collection via spclient (bypasses
+// api.spotify.com geo-restrictions).
+func (s *Session) SpRootlist(ctx context.Context) (*playlist4pb.SelectedListContent, error) {
+	username := s.Username()
+	sp := s.Spclient()
+
+	resp, err := sp.Request(ctx, "GET",
+		fmt.Sprintf("/playlist/v2/user/%s/rootlist", url.PathEscape(username)),
+		nil, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("spclient rootlist: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("spclient rootlist: status %d", resp.StatusCode)
 	}
 
-	u, _ := url.Parse("https://api.spotify.com")
-	u = u.JoinPath(path)
-	if query != nil {
-		u.RawQuery = query.Encode()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("spclient rootlist: read body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
+	var list playlist4pb.SelectedListContent
+	if err := proto.Unmarshal(body, &list); err != nil {
+		return nil, fmt.Errorf("spclient rootlist: unmarshal: %w", err)
+	}
+	return &list, nil
+}
+
+// SpPlaylistMetadata fetches a single playlist's attributes via spclient.
+func (s *Session) SpPlaylistMetadata(ctx context.Context, base62ID string) (*playlist4pb.SelectedListContent, error) {
+	sp := s.Spclient()
+
+	resp, err := sp.Request(ctx, "GET",
+		fmt.Sprintf("/playlist/v2/playlist/%s", base62ID),
+		nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
+	defer resp.Body.Close()
 
-	return http.DefaultClient.Do(req)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("spclient playlist metadata: status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var list playlist4pb.SelectedListContent
+	if err := proto.Unmarshal(body, &list); err != nil {
+		return nil, err
+	}
+	return &list, nil
+}
+
+// SpContextResolve resolves a playlist/album context into pages of tracks
+// via the spclient (bypasses api.spotify.com).
+func (s *Session) SpContextResolve(ctx context.Context, uri string) (*connectpb.Context, error) {
+	sp := s.Spclient()
+	return sp.ContextResolve(ctx, uri)
+}
+
+// SpTrackMetadata fetches full metadata for a single track via the spclient
+// extended metadata endpoint (TRACK_V4).
+func (s *Session) SpTrackMetadata(ctx context.Context, spotID librespot.SpotifyId) (*metadatapb.Track, error) {
+	sp := s.Spclient()
+	var track metadatapb.Track
+	if err := sp.ExtendedMetadataSimple(ctx, spotID, extmetadatapb.ExtensionKind_TRACK_V4, &track); err != nil {
+		return nil, err
+	}
+	return &track, nil
 }
 
 // Close releases all session and player resources.
@@ -387,7 +365,7 @@ func (s *Session) Close() {
 //
 // The new session is established before tearing down the old one to avoid a
 // window where s.sess/s.player are nil (which would crash concurrent callers
-// like NewStream or WebApi).
+// like NewStream).
 func (s *Session) Reconnect(ctx context.Context) error {
 	// Capture clientID without holding the lock during the (potentially long)
 	// interactive OAuth2 flow.
@@ -414,7 +392,6 @@ func (s *Session) Reconnect(ctx context.Context) error {
 	s.sess = newSess.sess
 	s.player = newSess.player
 	s.devID = newSess.devID
-	s.tokenSource = newSess.tokenSource
 	s.mu.Unlock()
 
 	// Tear down old session/player after the swap so there's no nil window.
