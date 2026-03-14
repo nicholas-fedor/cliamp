@@ -14,6 +14,18 @@ import (
 
 // — Message types used by tea.Cmd constructors —
 
+// devicesListedMsg carries the result of listing audio output devices.
+type devicesListedMsg struct {
+	devices []player.AudioDevice
+	err     error
+}
+
+// deviceSwitchedMsg signals that an audio device switch attempt completed.
+type deviceSwitchedMsg struct {
+	name string
+	err  error
+}
+
 type tracksLoadedMsg []playlist.Track
 
 // feedsLoadedMsg carries tracks resolved from remote feed/M3U URLs,
@@ -80,6 +92,20 @@ type navTracksLoadedMsg []playlist.Track
 type provAuthDoneMsg struct{ err error }
 
 // — Command constructors —
+
+func listDevicesCmd() tea.Cmd {
+	return func() tea.Msg {
+		devices, err := player.ListAudioDevices()
+		return devicesListedMsg{devices: devices, err: err}
+	}
+}
+
+func switchDeviceCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		err := player.SwitchAudioDevice(name)
+		return deviceSwitchedMsg{name: name, err: err}
+	}
+}
 
 // authenticateProviderCmd runs the interactive auth flow for a provider.
 func authenticateProviderCmd(auth playlist.Authenticator) tea.Cmd {

@@ -48,6 +48,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return m.handleKeymapKey(msg)
 	}
 
+	// Audio device picker overlay
+	if m.devicePicker.visible {
+		return m.handleDeviceKey(msg)
+	}
+
 	// Navidrome explore browser overlay
 	if m.navBrowser.visible {
 		return m.handleNavBrowserKey(msg)
@@ -455,6 +460,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			m.adjustScroll()
 		}
+
+	case "d":
+		m.devicePicker.visible = true
+		m.devicePicker.loading = true
+		m.devicePicker.cursor = 0
+		return listDevicesCmd()
 
 	case "ctrl+k":
 		m.keymap.visible = true
@@ -1019,3 +1030,28 @@ func (m *Model) handleQueueKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
+// handleDeviceKey processes key presses while the audio device picker is open.
+func (m *Model) handleDeviceKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "ctrl+c":
+		m.devicePicker.visible = false
+		return m.quit()
+	case "up", "k":
+		if m.devicePicker.cursor > 0 {
+			m.devicePicker.cursor--
+		}
+	case "down", "j":
+		if m.devicePicker.cursor < len(m.devicePicker.devices)-1 {
+			m.devicePicker.cursor++
+		}
+	case "enter":
+		if len(m.devicePicker.devices) > 0 && m.devicePicker.cursor < len(m.devicePicker.devices) {
+			dev := m.devicePicker.devices[m.devicePicker.cursor]
+			m.devicePicker.visible = false
+			return switchDeviceCmd(dev.Name)
+		}
+	case "esc", "d":
+		m.devicePicker.visible = false
+	}
+	return nil
+}

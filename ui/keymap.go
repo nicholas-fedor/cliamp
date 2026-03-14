@@ -41,6 +41,7 @@ var keymapEntries = []keymapEntry{
 	{"f", "Find on YouTube (queue play next)"},
 	{"F", "Find on SoundCloud (queue play next)"},
 	{"u", "Load URL (stream/playlist)"},
+	{"d", "Audio device picker"},
 	{"y", "Show lyrics"},
 	{"Tab", "Toggle focus"},
 	{"Esc", "Back to provider"},

@@ -8,6 +8,7 @@ import (
 
 	"cliamp/external/navidrome"
 	"cliamp/lyrics"
+	"cliamp/player"
 	"cliamp/playlist"
 )
 
@@ -129,6 +130,14 @@ type ytdlBatchState struct {
 type reconnectState struct {
 	attempts int
 	at       time.Time
+}
+
+// devicePickerState holds state for the audio device picker overlay.
+type devicePickerState struct {
+	visible bool
+	devices []player.AudioDevice
+	cursor  int
+	loading bool
 }
 
 // statusMsg holds a temporary status message shown at the bottom of the UI.

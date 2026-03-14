@@ -185,6 +185,9 @@ type Model struct {
 	// Full-screen visualizer mode (Shift+V)
 	fullVis bool
 
+	// Audio device picker overlay
+	devicePicker devicePickerState
+
 	autoPlay bool // start playing immediately on launch
 	compact  bool // compact mode: cap frame width at 80 columns
 
@@ -312,7 +315,7 @@ func (m Model) ThemeName() string {
 // the main player view. When true, the visualizer is not visible and we can
 // use the slower tick rate.
 func (m *Model) isOverlayActive() bool {
-	return m.keymap.visible || m.themePicker.visible ||
+	return m.keymap.visible || m.themePicker.visible || m.devicePicker.visible ||
 		m.fileBrowser.visible || m.navBrowser.visible || m.plManager.visible ||
 		m.queue.visible || m.showInfo || m.search.active || m.netSearch.active ||
 		m.jumping || m.urlInputting
@@ -1041,6 +1044,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.provSignIn = false
 		m.provLoading = true
 		return m, fetchPlaylistsCmd(m.provider)
+
+	case devicesListedMsg:
+		m.devicePicker.loading = false
+		if msg.err != nil {
+			m.status.text = fmt.Sprintf("Device list failed: %s", msg.err)
+			m.status.ttl = 60
+			m.devicePicker.visible = false
+		} else {
+			m.devicePicker.devices = msg.devices
+		}
+		return m, nil
+
+	case deviceSwitchedMsg:
+		if msg.err != nil {
+			m.status.text = fmt.Sprintf("Switch failed: %s", msg.err)
+		} else {
+			m.status.text = fmt.Sprintf("Audio output: %s", msg.name)
+			// Persist the selection to config.
+			_ = config.Save("audio_device", fmt.Sprintf("%q", msg.name))
+		}
+		m.status.ttl = 80
+		return m, nil
 
 	case mpris.InitMsg:
 		m.mpris = msg.Svc

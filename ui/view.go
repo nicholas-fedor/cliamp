@@ -37,6 +37,10 @@ func (m Model) View() string {
 		return m.renderThemePicker()
 	}
 
+	if m.devicePicker.visible {
+		return m.renderDeviceOverlay()
+	}
+
 	if m.fileBrowser.visible {
 		return m.renderFileBrowser()
 	}

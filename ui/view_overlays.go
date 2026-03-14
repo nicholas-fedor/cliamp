@@ -9,6 +9,52 @@ import (
 	"cliamp/theme"
 )
 
+func (m Model) renderDeviceOverlay() string {
+	lines := []string{
+		titleStyle.Render("A U D I O  D E V I C E S"),
+		"",
+	}
+
+	if m.devicePicker.loading {
+		lines = append(lines, dimStyle.Render("  Loading devices..."))
+		lines = append(lines, "", helpKey("Esc", "Cancel"))
+		return m.centerOverlay(strings.Join(lines, "\n"))
+	}
+
+	if len(m.devicePicker.devices) == 0 {
+		lines = append(lines, dimStyle.Render("  No audio output devices found."))
+		lines = append(lines, "", helpKey("Esc", "Close"))
+		return m.centerOverlay(strings.Join(lines, "\n"))
+	}
+
+	maxVisible := 12
+	scroll := scrollStart(m.devicePicker.cursor, maxVisible)
+
+	for i := scroll; i < len(m.devicePicker.devices) && i < scroll+maxVisible; i++ {
+		d := m.devicePicker.devices[i]
+		label := d.Description
+		if label == "" {
+			label = d.Name
+		}
+		suffix := ""
+		if d.Active {
+			suffix = " " + activeToggle.Render("●")
+		}
+		if i == m.devicePicker.cursor {
+			lines = append(lines, playlistSelectedStyle.Render("> "+label)+suffix)
+		} else {
+			lines = append(lines, dimStyle.Render("  "+label)+suffix)
+		}
+	}
+
+	if len(m.devicePicker.devices) > maxVisible {
+		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d devices", m.devicePicker.cursor+1, len(m.devicePicker.devices))))
+	}
+
+	lines = append(lines, "", helpKey("↑↓", "Navigate ")+helpKey("Enter", "Select ")+helpKey("Esc", "Cancel"))
+	return m.centerOverlay(strings.Join(lines, "\n"))
+}
+
 func (m Model) renderKeymapOverlay() string {
 	lines := []string{
 		titleStyle.Render("K E Y M A P"),

@@ -143,6 +143,12 @@ func run(overrides config.Overrides, positional []string) error {
 	pl := playlist.New()
 	pl.Add(resolved.Tracks...)
 
+	// Configure audio output device before speaker init.
+	if cfg.AudioDevice != "" {
+		cleanup := player.PrepareAudioDevice(cfg.AudioDevice)
+		defer cleanup()
+	}
+
 	// Resolve sample rate: 0 means auto-detect from the system's default
 	// output audio device (e.g. 48 kHz for USB-C headphones). Falls back
 	// to 44100 Hz if detection is unavailable or returns an unusable value.
@@ -248,6 +254,7 @@ Audio engine:
   --buffer-ms <ms>        Speaker buffer in milliseconds (50–500)
   --resample-quality <n>  Resample quality factor (1–4)
   --bit-depth <n>         PCM bit depth: 16 (default) or 32 (lossless)
+  --audio-device <name>   Audio output device (use --audio-device=list to show available devices)
 
 Provider:
   --provider <name>       Default provider: radio, navidrome, spotify, yt, youtube, ytmusic (default: radio)
@@ -307,6 +314,24 @@ func main() {
 		if err := upgrade.Run(version); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
+		}
+		return
+	case "list-audio-devices":
+		devices, err := player.ListAudioDevices()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if len(devices) == 0 {
+			fmt.Println("No audio output devices found.")
+		} else {
+			for _, d := range devices {
+				marker := "  "
+				if d.Active {
+					marker = "* "
+				}
+				fmt.Printf("%s%-50s %s\n", marker, d.Description, d.Name)
+			}
 		}
 		return
 	}
