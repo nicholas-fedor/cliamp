@@ -150,6 +150,7 @@ func IsYTDL(path string) bool {
 	switch host {
 	case "soundcloud.com",
 		"bandcamp.com",
+		"music.163.com":
 		"bilibili.com",
 		"b23.tv":
 		return true
