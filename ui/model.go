@@ -31,7 +31,11 @@ const (
 )
 
 // maxPlVisible caps the playlist at a readable height even on tall terminals.
-const maxPlVisible = 12
+// maxPlExpandVisible is the higher cap used when the user expands with 'x'.
+const (
+	maxPlVisible       = 12
+	maxPlExpandVisible = 24
+)
 
 type plMgrScreenType int
 

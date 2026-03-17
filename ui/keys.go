@@ -449,7 +449,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 					"x", "", m.renderHelp(), m.renderStreamStatus(),
 				}, "\n")
 				fixedLines := lipgloss.Height(frameStyle.Render(probe)) - 1
-				m.plVisible = max(5, min(maxPlVisible, m.height-fixedLines))
+				m.plVisible = max(5, min(maxPlExpandVisible, m.height-fixedLines))
 			} else {
 				m.plVisible = 5
 			}
