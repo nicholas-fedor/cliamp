@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/external/navidrome"
+	"cliamp/external/radio"
 	"cliamp/lyrics"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -59,6 +60,14 @@ type ytdlBatchMsg struct {
 type ytdlSavedMsg struct {
 	path string
 	err  error
+}
+
+// — Radio catalog message types —
+
+// radioCatalogLoadedMsg carries stations fetched from the Radio Browser API.
+type radioCatalogLoadedMsg struct {
+	stations []radio.CatalogStation
+	err      error
 }
 
 // — Navidrome browser message types —
@@ -251,6 +260,22 @@ func fetchNavAlbumTracksCmd(c *navidrome.NavidromeClient, albumID string) tea.Cm
 			return err
 		}
 		return navTracksLoadedMsg(tracks)
+	}
+}
+
+// — Radio catalog commands —
+
+func fetchRadioTopCmd() tea.Cmd {
+	return func() tea.Msg {
+		stations, err := radio.TopStations(50)
+		return radioCatalogLoadedMsg{stations: stations, err: err}
+	}
+}
+
+func fetchRadioSearchCmd(query string) tea.Cmd {
+	return func() tea.Msg {
+		stations, err := radio.SearchStations(query, 50)
+		return radioCatalogLoadedMsg{stations: stations, err: err}
 	}
 }
 

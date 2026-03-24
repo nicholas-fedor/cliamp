@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cliamp/external/navidrome"
+	"cliamp/external/radio"
 	"cliamp/lyrics"
 	"cliamp/playlist"
 )
@@ -114,6 +115,18 @@ type navBrowserState struct {
 	searching    bool
 	search       string
 	searchIdx    []int
+}
+
+// radioCatalogState holds state for the radio catalog browser overlay.
+type radioCatalogState struct {
+	visible   bool
+	query     string
+	searching bool // true while the search input is focused
+	stations  []radio.CatalogStation
+	cursor    int
+	scroll    int
+	loading   bool
+	err       string
 }
 
 // ytdlBatchState holds state for incremental yt-dlp playlist loading.

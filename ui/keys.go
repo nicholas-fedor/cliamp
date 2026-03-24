@@ -53,6 +53,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return m.handleNavBrowserKey(msg)
 	}
 
+	// Radio catalog overlay
+	if m.radioCatalog.visible {
+		return m.handleRadioCatalogKey(msg)
+	}
+
 	// Theme picker overlay — interactive navigation
 	if m.themePicker.visible {
 		return m.handleThemeKey(msg)
@@ -172,6 +177,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			if m.navClient != nil {
 				m.openNavBrowser()
 			}
+		case "R":
+			return m.openRadioCatalog()
 		case "J":
 			m.openJumpMode()
 		}
@@ -445,6 +452,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		if m.navClient != nil {
 			m.openNavBrowser()
 		}
+
+	case "R":
+		return m.openRadioCatalog()
 
 	case "v":
 		m.vis.CycleMode()

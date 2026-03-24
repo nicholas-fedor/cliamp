@@ -57,6 +57,10 @@ func (m Model) View() string {
 		return m.renderNavBrowser()
 	}
 
+	if m.radioCatalog.visible {
+		return m.renderRadioCatalog()
+	}
+
 	if m.plManager.visible {
 		return m.renderPlaylistManager()
 	}

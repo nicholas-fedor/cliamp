@@ -50,6 +50,7 @@ Press `Ctrl+K` in the player to see all keybindings.
 | `y` | Show lyrics |
 | `S` | Save track to ~/Music |
 | `N` | Navidrome browser |
+| `R` | Radio catalog (search online stations) |
 
 ## Playlist and Queue
 

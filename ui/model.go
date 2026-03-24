@@ -153,8 +153,9 @@ type Model struct {
 	queue       queueOverlay
 	plManager   plManagerState
 	fileBrowser fileBrowserState
-	navBrowser  navBrowserState
-	ytdlBatch   ytdlBatchState
+	navBrowser    navBrowserState
+	radioCatalog  radioCatalogState
+	ytdlBatch     ytdlBatchState
 	reconnect   reconnectState
 	status      statusMsg
 	network     networkStats
@@ -336,7 +337,8 @@ func (m Model) ThemeName() string {
 // use the slower tick rate.
 func (m *Model) isOverlayActive() bool {
 	return m.keymap.visible || m.themePicker.visible ||
-		m.fileBrowser.visible || m.navBrowser.visible || m.plManager.visible ||
+		m.fileBrowser.visible || m.navBrowser.visible || m.radioCatalog.visible ||
+		m.plManager.visible ||
 		m.queue.visible || m.showInfo || m.search.active || m.netSearch.active ||
 		m.jumping || m.urlInputting
 }
@@ -585,6 +587,16 @@ func (m *Model) openNavBrowser() {
 	m.navBrowser.searching = false
 	m.navBrowser.search = ""
 	m.navBrowser.searchIdx = nil
+}
+
+// openRadioCatalog opens the radio catalog overlay and fetches top stations.
+func (m *Model) openRadioCatalog() tea.Cmd {
+	m.radioCatalog = radioCatalogState{
+		visible:   true,
+		searching: true,
+		loading:   true,
+	}
+	return fetchRadioTopCmd()
 }
 
 // Init starts the tick timer and requests the terminal size.
@@ -918,6 +930,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.navBrowser.cursor = 0
 		m.navBrowser.scroll = 0
 		m.navBrowser.screen = navBrowseScreenTracks
+		return m, nil
+
+	case radioCatalogLoadedMsg:
+		m.radioCatalog.loading = false
+		if msg.err != nil {
+			m.radioCatalog.err = msg.err.Error()
+		} else {
+			m.radioCatalog.stations = msg.stations
+			m.radioCatalog.err = ""
+		}
+		m.radioCatalog.cursor = 0
+		m.radioCatalog.scroll = 0
 		return m, nil
 
 	case ytdlBatchMsg:
