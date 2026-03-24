@@ -50,7 +50,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.19.0 // indirect
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/icza/bitio v1.1.0 // indirect
-	github.com/jfreymuth/pulse v0.1.2-0.20241102120944-4ffb35054b53 // indirect
+	github.com/jfreymuth/pulse v0.1.2-0.20250227192922-7a016f9e4952 // indirect
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
