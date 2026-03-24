@@ -474,24 +474,27 @@ func (p *Playlist) Move(from, to int) bool {
 
 	// Update order: swap all references so they point at the moved tracks.
 	for i, idx := range p.order {
-		if idx == from {
+		switch idx {
+		case from:
 			p.order[i] = to
-		} else if idx == to {
+		case to:
 			p.order[i] = from
 		}
 	}
 
 	// Queue also references track indices.
 	for i, idx := range p.queue {
-		if idx == from {
+		switch idx {
+		case from:
 			p.queue[i] = to
-		} else if idx == to {
+		case to:
 			p.queue[i] = from
 		}
 	}
-	if p.queuedIdx == from {
+	switch p.queuedIdx {
+	case from:
 		p.queuedIdx = to
-	} else if p.queuedIdx == to {
+	case to:
 		p.queuedIdx = from
 	}
 

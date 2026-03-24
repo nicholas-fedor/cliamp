@@ -237,10 +237,7 @@ func (m Model) renderTimeStatus() string {
 	}
 
 	left := timeStyle.Render(timeStr)
-	gap := panelWidth - lipgloss.Width(left) - lipgloss.Width(status)
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(panelWidth-lipgloss.Width(left)-lipgloss.Width(status), 1)
 
 	return left + strings.Repeat(" ", gap) + status
 }
@@ -368,7 +365,7 @@ func (m Model) renderProviderPill() string {
 		if m.focus == focusProvPill && i == m.provPillIdx {
 			pills = append(pills, activeToggle.Render("["+name+"]"))
 		} else if i == m.provPillIdx {
-			pills = append(pills, dimStyle.Render("[") + trackStyle.Render(name) + dimStyle.Render("]"))
+			pills = append(pills, dimStyle.Render("[")+trackStyle.Render(name)+dimStyle.Render("]"))
 		} else {
 			pills = append(pills, dimStyle.Render("["+name+"]"))
 		}

@@ -34,7 +34,7 @@ func (v *Visualizer) renderButterfly(bands [numBands]float64) string {
 		wobble := math.Sin(t) * 0.15
 		wingWidth := int(float64(centerX) * (energy + wobble) * 0.9)
 
-		for dx := 0; dx < wingWidth; dx++ {
+		for dx := range wingWidth {
 			// Distance from center normalized to wing width.
 			norm := float64(dx) / float64(max(1, wingWidth))
 
@@ -73,7 +73,7 @@ func (v *Visualizer) renderButterfly(bands [numBands]float64) string {
 	for row := range height {
 		var content strings.Builder
 		for ch := range panelWidth {
-			var braille rune = '\u2800'
+			var braille = '\u2800'
 			for dr := range 4 {
 				for dc := range 2 {
 					if grid[(row*4+dr)*dotCols+ch*2+dc] {

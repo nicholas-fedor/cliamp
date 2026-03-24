@@ -52,10 +52,7 @@ func (t *tap) Err() error {
 // SamplesInto copies the last len(dst) samples into dst, avoiding allocation.
 // Returns the number of samples written.
 func (t *tap) SamplesInto(dst []float64) int {
-	n := len(dst)
-	if n > t.size {
-		n = t.size
-	}
+	n := min(len(dst), t.size)
 	p := int(t.pos.Load())
 	start := (p - n + t.size) % t.size
 	for i := range n {

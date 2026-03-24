@@ -48,10 +48,7 @@ func (m Model) renderRadioCatalog() string {
 	}
 
 	// Station list
-	maxVisible := m.plVisible
-	if maxVisible < 5 {
-		maxVisible = 5
-	}
+	maxVisible := max(m.plVisible, 5)
 
 	scroll := m.radioCatalog.scroll
 	rendered := 0

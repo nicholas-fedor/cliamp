@@ -47,11 +47,11 @@ type Player struct {
 	resampleQuality int
 	bitDepth        int // 16 or 32
 
-	gaplessAdvance atomic.Bool // set when gapless transition fires
-	seekGen        atomic.Int64    // generation counter for yt-dlp seeks; incremented to cancel stale seeks
+	gaplessAdvance atomic.Bool  // set when gapless transition fires
+	seekGen        atomic.Int64 // generation counter for yt-dlp seeks; incremented to cancel stale seeks
 
-	streamTitle    atomic.Value    // stores string, set by ICY reader callback
-	customFactory  StreamerFactory // optional factory for custom URI schemes (e.g., spotify:)
+	streamTitle   atomic.Value    // stores string, set by ICY reader callback
+	customFactory StreamerFactory // optional factory for custom URI schemes (e.g., spotify:)
 }
 
 // New creates a Player and initializes the speaker with the given quality settings.
@@ -316,10 +316,7 @@ func (p *Player) Seek(d time.Duration) error {
 	if cur.seekableStream && cur.knownDuration > 0 && cur.contentLength > 0 {
 		// Compute new absolute position.
 		curPos := cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
-		newPos := curPos + d
-		if newPos < 0 {
-			newPos = 0
-		}
+		newPos := max(curPos+d, 0)
 		if newPos >= cur.knownDuration {
 			newPos = cur.knownDuration - time.Second
 		}
@@ -370,10 +367,7 @@ func (p *Player) Seek(d time.Duration) error {
 	}
 	curSample := cur.decoder.Position()
 	curDur := cur.format.SampleRate.D(curSample)
-	newSample := cur.format.SampleRate.N(curDur + d)
-	if newSample < 0 {
-		newSample = 0
-	}
+	newSample := max(cur.format.SampleRate.N(curDur+d), 0)
 	if newSample >= cur.decoder.Len() {
 		newSample = cur.decoder.Len() - 1
 	}
@@ -424,10 +418,7 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	p.gapless.Replace(nil)
 	speaker.Unlock()
 
-	newPos := curPos + d
-	if newPos < 0 {
-		newPos = 0
-	}
+	newPos := max(curPos+d, 0)
 	if cur.knownDuration > 0 && newPos >= cur.knownDuration {
 		newPos = cur.knownDuration - time.Second
 	}

@@ -18,7 +18,7 @@ func (v *Visualizer) renderBarsDot(bands [numBands]float64) string {
 		for b := range numBands {
 			charsPerBand := visBandWidth(b)
 			for c := range charsPerBand {
-				var braille rune = '\u2800'
+				var braille = '\u2800'
 
 				for dr := range 4 {
 					for dc := range 2 {

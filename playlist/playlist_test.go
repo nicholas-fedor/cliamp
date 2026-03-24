@@ -131,7 +131,7 @@ func TestMovePreservesPlaybackOrder_NoShuffle(t *testing.T) {
 	track, _ := p.Current()
 	playback = append(playback, track.Title) // A
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		track, ok := p.Next()
 		if !ok {
 			t.Fatalf("Next() returned false at step %d", i)
@@ -189,11 +189,12 @@ func TestMoveShuffle(t *testing.T) {
 		want := ""
 		oldIdx := orderBefore[i]
 		// The old index pointed to a track; after swap, find where it went
-		if oldIdx == 0 {
+		switch oldIdx {
+		case 0:
 			want = t0
-		} else if oldIdx == 1 {
+		case 1:
 			want = t1
-		} else {
+		default:
 			want = string(rune('A' + oldIdx))
 		}
 		if got != want {

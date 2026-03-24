@@ -69,7 +69,7 @@ func (v *Visualizer) renderHeartbeat() string {
 		tag := -1
 
 		for ch := range panelWidth {
-			var braille rune = '\u2800'
+			var braille = '\u2800'
 			hasTrace := false
 
 			for dr := range 4 {

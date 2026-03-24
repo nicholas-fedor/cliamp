@@ -93,7 +93,7 @@ func (v *Visualizer) renderFirework(bands [numBands]float64) string {
 	for row := range height {
 		var content strings.Builder
 		for ch := range panelWidth {
-			var braille rune = '\u2800'
+			var braille = '\u2800'
 			for dr := range 4 {
 				for dc := range 2 {
 					if grid[(row*4+dr)*dotCols+ch*2+dc] {

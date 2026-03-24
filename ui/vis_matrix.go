@@ -30,7 +30,7 @@ func (v *Visualizer) renderMatrix(bands [numBands]float64) string {
 				// Column activity: stable gate, changes every ~20 frames.
 				// Higher energy activates more columns.
 				if scatterHash(b, 0, col, v.frame/20) > energy*1.5+0.1 {
-					if -1 != tag {
+					if tag != -1 {
 						flushStyleRun(&sb, &run, tag)
 						tag = -1
 					}
@@ -53,7 +53,7 @@ func (v *Visualizer) renderMatrix(bands [numBands]float64) string {
 
 				dist := pos - row
 				if dist < 0 || dist > trailLen {
-					if -1 != tag {
+					if tag != -1 {
 						flushStyleRun(&sb, &run, tag)
 						tag = -1
 					}
@@ -80,7 +80,7 @@ func (v *Visualizer) renderMatrix(bands [numBands]float64) string {
 				col++
 			}
 			if b < numBands-1 {
-				if -1 != tag {
+				if tag != -1 {
 					flushStyleRun(&sb, &run, tag)
 					tag = -1
 				}

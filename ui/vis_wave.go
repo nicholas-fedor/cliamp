@@ -35,7 +35,7 @@ func (v *Visualizer) renderWave() string {
 		dotRowStart := row * 4
 
 		for ch := range charCols {
-			var braille rune = '\u2800'
+			var braille = '\u2800'
 			dotColStart := ch * 2
 
 			for dc := range 2 {

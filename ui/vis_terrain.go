@@ -35,7 +35,7 @@ func (v *Visualizer) renderTerrain(bands [numBands]float64) string {
 	for row := range height {
 		var content strings.Builder
 		for ch := range panelWidth {
-			var braille rune = '\u2800'
+			var braille = '\u2800'
 			for dc := range 2 {
 				x := ch*2 + dc
 				terrainH := v.terrainBuf[x]

@@ -61,7 +61,7 @@ func (v *Visualizer) renderSakura(bands [numBands]float64) string {
 		// Y: slow scroll with off-screen buffer for smooth entry/exit.
 		wrapH := dotRows + 10
 		baseY := int((seed * 3037) % uint64(wrapH))
-		y := (baseY + int(v.frame)*fallSpeed/8) % wrapH - 5
+		y := (baseY+int(v.frame)*fallSpeed/8)%wrapH - 5
 
 		// Gentle lateral sway — each petal has its own phase.
 		swayPhase := float64(seed%1000) / 1000.0 * 2 * math.Pi
@@ -83,7 +83,7 @@ func (v *Visualizer) renderSakura(bands [numBands]float64) string {
 	for row := range height {
 		var content strings.Builder
 		for ch := range panelWidth {
-			var braille rune = '\u2800'
+			var braille = '\u2800'
 			for dr := range 4 {
 				for dc := range 2 {
 					if grid[(row*4+dr)*dotCols+ch*2+dc] {
