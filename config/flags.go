@@ -222,6 +222,3 @@ func requireNextInt(args []string, idx *int, flag string) (int, error) {
 	}
 	return v, nil
 }
-
-//go:fix inline
-func ptrBool(v bool) *bool { return new(v) }

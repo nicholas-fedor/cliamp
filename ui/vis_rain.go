@@ -58,25 +58,19 @@ func (v *Visualizer) renderRain(bands [numBands]float64) string {
 
 				dist := pos - row
 				if dist >= 0 && dist < dropLen {
-					// Pick character: head gets │, body gets thinner chars.
+					// Pick character and color by drop position:
+					// bright head (┃), mid body (│), dim tail (:).
 					var ch rune
-					switch dist {
-					case 0:
-						ch = '┃'
-					case 1:
-						ch = '│'
-					default:
-						ch = ':'
-					}
-
-					// Color by drop position: bright head, mid body, dim tail.
 					var newTag int
 					switch dist {
 					case 0:
+						ch = '┃'
 						newTag = 2
 					case 1:
+						ch = '│'
 						newTag = 1
 					default:
+						ch = ':'
 						newTag = 0
 					}
 					if newTag != curTag {
