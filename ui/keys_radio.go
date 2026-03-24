@@ -160,10 +160,7 @@ func (m *Model) handleRadioSearchInput(msg tea.KeyMsg) tea.Cmd {
 
 // radioMaybeAdjustScroll keeps the cursor visible within the rendered list window.
 func (m *Model) radioMaybeAdjustScroll() {
-	visible := m.plVisible
-	if visible < 5 {
-		visible = 5
-	}
+	visible := max(m.plVisible, 5)
 	if m.radioCatalog.cursor < m.radioCatalog.scroll {
 		m.radioCatalog.scroll = m.radioCatalog.cursor
 	}

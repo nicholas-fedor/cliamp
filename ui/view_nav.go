@@ -169,10 +169,7 @@ func (m Model) renderNavTrackList() string {
 		return m.centerOverlay(strings.Join(lines, "\n"))
 	}
 
-	maxVisible := m.plVisible
-	if maxVisible < 5 {
-		maxVisible = 5
-	}
+	maxVisible := max(m.plVisible, 5)
 
 	useFilter := len(m.navBrowser.searchIdx) > 0 || m.navBrowser.search != ""
 

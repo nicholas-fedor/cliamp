@@ -20,7 +20,7 @@ const (
 	logoLetterW    = 5 // pixel columns per glyph
 	logoLetterH    = 7 // pixel rows per glyph
 	logoNumLetters = 6
-	logoGap        = 2 // pixel gap between letters
+	logoGap        = 2                                                       // pixel gap between letters
 	logoTotalW     = logoNumLetters*logoLetterW + (logoNumLetters-1)*logoGap // 40
 )
 
@@ -98,7 +98,7 @@ func (v *Visualizer) renderLogo(bands [numBands]float64) string {
 	for row := range height {
 		var content strings.Builder
 		for ch := range panelWidth {
-			var braille rune = '\u2800'
+			var braille = '\u2800'
 			for dr := range 4 {
 				for dc := range 2 {
 					if grid[(row*4+dr)*dotCols+ch*2+dc] {

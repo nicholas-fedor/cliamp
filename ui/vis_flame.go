@@ -20,7 +20,7 @@ func (v *Visualizer) renderFlame(bands [numBands]float64) string {
 			charsPerBand := visBandWidth(b)
 			bandDotCols := charsPerBand * 2
 			for c := range charsPerBand {
-				var braille rune = '\u2800'
+				var braille = '\u2800'
 
 				for dr := range 4 {
 					for dc := range 2 {

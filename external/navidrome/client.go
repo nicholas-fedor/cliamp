@@ -91,9 +91,9 @@ type Album struct {
 
 // NavidromeClient implements playlist.Provider for a Navidrome/Subsonic server.
 type NavidromeClient struct {
-	url      string
-	user     string
-	password string
+	url           string
+	user          string
+	password      string
 	mu            sync.Mutex
 	playlistCache []playlist.PlaylistInfo
 	trackCache    map[string][]playlist.Track
@@ -154,7 +154,7 @@ func (c *NavidromeClient) buildURL(endpoint string, params url.Values) string {
 	saltBytes := make([]byte, 8)
 	if _, err := io.ReadFull(rand.Reader, saltBytes); err != nil {
 		// Fallback to timestamp if crypto/rand fails (should never happen).
-		saltBytes = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+		saltBytes = fmt.Appendf(nil, "%d", time.Now().UnixNano())
 	}
 	salt := hex.EncodeToString(saltBytes)
 	hash := md5.Sum([]byte(c.password + salt))
@@ -422,15 +422,7 @@ type subsonicAlbum struct {
 }
 
 func albumFromSubsonic(a subsonicAlbum) Album {
-	return Album{
-		ID:        a.ID,
-		Name:      a.Name,
-		Artist:    a.Artist,
-		ArtistID:  a.ArtistID,
-		Year:      a.Year,
-		SongCount: a.SongCount,
-		Genre:     a.Genre,
-	}
+	return Album(a)
 }
 
 // streamURL generates the authenticated streaming URL for a track ID.

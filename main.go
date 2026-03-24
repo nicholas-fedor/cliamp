@@ -209,7 +209,7 @@ func run(overrides config.Overrides, positional []string) error {
 
 	prog := tea.NewProgram(m, tea.WithAltScreen())
 
-	if svc, err := mpris.New(func(msg interface{}) { prog.Send(msg) }); err == nil && svc != nil {
+	if svc, err := mpris.New(func(msg any) { prog.Send(msg) }); err == nil && svc != nil {
 		defer svc.Close()
 		go prog.Send(mpris.InitMsg{Svc: svc})
 	}

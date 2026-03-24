@@ -113,8 +113,8 @@ func (b *baseProvider) initSession(interactive bool) error {
 	return nil
 }
 
-func (b *baseProvider) ensureSession() error  { return b.initSession(false) }
-func (b *baseProvider) authenticate() error   { return b.initSession(true) }
+func (b *baseProvider) ensureSession() error { return b.initSession(false) }
+func (b *baseProvider) authenticate() error  { return b.initSession(true) }
 
 func (b *baseProvider) close() {
 	b.mu.Lock()
@@ -370,15 +370,10 @@ func (b *baseProvider) fetchDurations(ctx context.Context, svc *youtube.Service,
 	sem := make(chan struct{}, 5) // limit concurrent API calls
 
 	for i := 0; i < len(items); i += youtubeAPIBatchSize {
-		end := i + youtubeAPIBatchSize
-		if end > len(items) {
-			end = len(items)
-		}
+		end := min(i+youtubeAPIBatchSize, len(items))
 		batch := items[i:end]
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
@@ -398,7 +393,7 @@ func (b *baseProvider) fetchDurations(ctx context.Context, svc *youtube.Service,
 				durations[v.Id] = parseISO8601Duration(v.ContentDetails.Duration)
 			}
 			mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -434,9 +429,9 @@ type YouTubeMusicProvider struct {
 	base *baseProvider
 }
 
-func (p *YouTubeMusicProvider) Name() string         { return "YouTube Music" }
-func (p *YouTubeMusicProvider) Authenticate() error   { return p.base.authenticate() }
-func (p *YouTubeMusicProvider) Close()                { p.base.close() }
+func (p *YouTubeMusicProvider) Name() string        { return "YouTube Music" }
+func (p *YouTubeMusicProvider) Authenticate() error { return p.base.authenticate() }
+func (p *YouTubeMusicProvider) Close()              { p.base.close() }
 func (p *YouTubeMusicProvider) Tracks(id string) ([]playlist.Track, error) {
 	return p.base.tracks(id)
 }
@@ -457,9 +452,9 @@ type YouTubeProvider struct {
 	base *baseProvider
 }
 
-func (p *YouTubeProvider) Name() string         { return "YouTube" }
-func (p *YouTubeProvider) Authenticate() error   { return p.base.authenticate() }
-func (p *YouTubeProvider) Close()                { /* shared base; closed via music provider */ }
+func (p *YouTubeProvider) Name() string        { return "YouTube" }
+func (p *YouTubeProvider) Authenticate() error { return p.base.authenticate() }
+func (p *YouTubeProvider) Close()              { /* shared base; closed via music provider */ }
 func (p *YouTubeProvider) Tracks(id string) ([]playlist.Track, error) {
 	return p.base.tracks(id)
 }
@@ -490,7 +485,7 @@ type YouTubeAllProvider struct {
 	base *baseProvider
 }
 
-func (p *YouTubeAllProvider) Name() string       { return "YouTube (All)" }
+func (p *YouTubeAllProvider) Name() string        { return "YouTube (All)" }
 func (p *YouTubeAllProvider) Authenticate() error { return p.base.authenticate() }
 func (p *YouTubeAllProvider) Close()              { /* shared base; closed via music provider */ }
 func (p *YouTubeAllProvider) Tracks(id string) ([]playlist.Track, error) {

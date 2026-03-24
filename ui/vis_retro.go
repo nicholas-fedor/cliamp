@@ -15,10 +15,7 @@ func (v *Visualizer) renderRetro(bands [numBands]float64) string {
 	dotCols := charCols * 2
 
 	// Horizon at 40% from top — gives room for wave and sun above.
-	horizonDot := dotRows * 2 / 5
-	if horizonDot < 2 {
-		horizonDot = 2
-	}
+	horizonDot := max(dotRows*2/5, 2)
 	floorRows := dotRows - horizonDot
 	centerX := float64(dotCols-1) / 2.0
 
@@ -135,7 +132,7 @@ func (v *Visualizer) renderRetro(bands [numBands]float64) string {
 		base := row * 4
 
 		for ch := range charCols {
-			var braille rune = '\u2800'
+			var braille = '\u2800'
 			colBase := ch * 2
 			hasWave, hasSun := false, false
 

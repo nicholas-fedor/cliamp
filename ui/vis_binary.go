@@ -50,7 +50,7 @@ func (v *Visualizer) renderBinary(bands [numBands]float64) string {
 				col++
 			}
 			if b < numBands-1 {
-				if -1 != tag {
+				if tag != -1 {
 					flushStyleRun(&sb, &run, tag)
 					tag = -1
 				}

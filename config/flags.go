@@ -96,15 +96,15 @@ func ParseFlags(args []string) (action string, ov Overrides, positional []string
 
 		// Boolean flags.
 		case "--shuffle":
-			ov.Shuffle = ptrBool(true)
+			ov.Shuffle = new(true)
 		case "--mono":
-			ov.Mono = ptrBool(true)
+			ov.Mono = new(true)
 		case "--no-mono":
-			ov.Mono = ptrBool(false)
+			ov.Mono = new(false)
 		case "--auto-play":
-			ov.Play = ptrBool(true)
+			ov.Play = new(true)
 		case "--compact":
-			ov.Compact = ptrBool(true)
+			ov.Compact = new(true)
 		// Key-value flags.
 		case "--provider":
 			v, e := requireNextString(args, &i, arg)
@@ -223,4 +223,5 @@ func requireNextInt(args []string, idx *int, flag string) (int, error) {
 	return v, nil
 }
 
-func ptrBool(v bool) *bool { return &v }
+//go:fix inline
+func ptrBool(v bool) *bool { return new(v) }

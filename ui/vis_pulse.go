@@ -44,7 +44,7 @@ func (v *Visualizer) renderPulse(bands [numBands]float64) string {
 		tag := -1
 
 		for c := range panelWidth {
-			var braille rune = '\u2800'
+			var braille = '\u2800'
 			var maxNorm float64
 
 			for dr := range 4 {

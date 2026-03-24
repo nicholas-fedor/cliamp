@@ -43,7 +43,7 @@ type TrackInfo struct {
 type Service struct {
 	conn  *dbus.Conn
 	props *prop.Properties
-	send  func(interface{})
+	send  func(any)
 	mu    sync.Mutex
 
 	// Cached values from the last Update call.  We compare against
@@ -134,7 +134,7 @@ func (p playerIface) SetPosition(trackID dbus.ObjectPath, position int64) *dbus.
 // New connects to the session D-Bus, claims the MPRIS bus name, and
 // exports the two required interfaces. send is used to inject messages
 // into the Bubbletea event loop (typically prog.Send).
-func New(send func(interface{})) (*Service, error) {
+func New(send func(any)) (*Service, error) {
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		return nil, fmt.Errorf("mpris: session bus: %w", err)
