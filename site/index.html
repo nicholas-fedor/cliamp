@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CLIAMP — Terminal Music Player</title>
-<meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Plays MP3, WAV, FLAC, OGG, AAC, ALAC, Opus, and WMA with a spectrum visualizer and EQ.">
+<meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Play local files, YouTube, Spotify, Plex, Navidrome, SoundCloud, and 30,000+ radio stations with a spectrum visualizer and 10-band EQ.">
 <style>
   /* ═══ RESET ═══════════════════════════════ */
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -886,7 +886,7 @@
       <div class="feature">
         <div class="feature-icon">&#9654;</div>
         <div class="feature-name">yt-dlp Integration</div>
-        <p>YouTube, SoundCloud, and Bandcamp playback via yt-dlp. Search YouTube with <code>cliamp search "query"</code> or SoundCloud with <code>cliamp search-sc "query"</code>. Press <kbd>f</kbd> / <kbd>F</kbd> to search in-player</p>
+        <p>YouTube, SoundCloud, Bandcamp, and Bilibili playback via yt-dlp. Search YouTube with <code>cliamp search "query"</code> or SoundCloud with <code>cliamp search-sc "query"</code>. Press <kbd>f</kbd> / <kbd>F</kbd> to search in-player</p>
       </div>
       <div class="feature">
         <div class="feature-icon">&#9688;</div>
@@ -937,6 +937,21 @@
         <div class="feature-icon">&#8593;</div>
         <div class="feature-name">Self-Update</div>
         <p>Run <code>--upgrade</code> to update to the latest release directly from your terminal</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#9835;</div>
+        <div class="feature-name">Spotify</div>
+        <p>Stream your Spotify Premium library &mdash; playlists, EQ, visualizer, and all effects apply. OAuth login with cached credentials</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#9654;</div>
+        <div class="feature-name">YouTube Music</div>
+        <p>Browse and play your YouTube Music playlists via OAuth. Automatic music/non-music classification with cached login</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#9654;</div>
+        <div class="feature-name">Plex</div>
+        <p>Stream music from your Plex Media Server. Browse albums and play directly &mdash; no extra software required</p>
       </div>
     </div>
   </div>
@@ -1182,6 +1197,10 @@
         <div class="key-row"><kbd>--sample-rate &lt;Hz&gt;</kbd><span>Output sample rate</span></div>
         <div class="key-row"><kbd>--buffer-ms &lt;ms&gt;</kbd><span>Speaker buffer (50&ndash;500)</span></div>
         <div class="key-row"><kbd>--resample-quality &lt;n&gt;</kbd><span>Resample quality (1&ndash;4)</span></div>
+        <div class="key-row"><kbd>--compact</kbd><span>Cap width at 80 columns</span></div>
+        <div class="key-row"><kbd>--bit-depth &lt;n&gt;</kbd><span>PCM bit depth: 16 or 32</span></div>
+        <div class="key-row"><kbd>--provider &lt;name&gt;</kbd><span>Default provider (radio, navidrome, plex, spotify, ytmusic)</span></div>
+        <div class="key-row"><kbd>--visualizer &lt;mode&gt;</kbd><span>Visualizer mode (Bars, Wave, Matrix, Retro, etc.)</span></div>
         <div class="key-row"><kbd>--upgrade</kbd><span>Update to latest release</span></div>
         <div class="key-row"><kbd>--help / --version</kbd><span>Help &amp; version info</span></div>
       </div>
@@ -1225,8 +1244,10 @@
         <div class="key-row"><kbd>i</kbd><span>Track info / metadata</span></div>
         <div class="key-row"><kbd>r</kbd><span>Repeat: Off / All / One</span></div>
         <div class="key-row"><kbd>z</kbd><span>Toggle shuffle</span></div>
+        <div class="key-row"><kbd>N</kbd><span>Navidrome browser</span></div>
         <div class="key-row"><kbd>R</kbd><span>Radio catalog</span></div>
         <div class="key-row"><kbd>S</kbd><span>Save to ~/Music</span></div>
+        <div class="key-row"><kbd>Shift+&uarr; Shift+&darr;</kbd><span>Move track up / down</span></div>
         <div class="key-row"><kbd>Esc / b</kbd><span>Back to provider</span></div>
         <div class="key-row"><kbd>Ctrl+K</kbd><span>Show keymap</span></div>
         <div class="key-row"><kbd>q</kbd><span>Quit</span></div>
