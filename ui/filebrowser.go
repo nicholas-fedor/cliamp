@@ -270,7 +270,12 @@ func (m Model) renderFileBrowser() string {
 		lines = append(lines, "")
 	}
 
-	lines = append(lines, "", helpKey("↑↓", "Navigate ")+helpKey("Enter", "Open ")+helpKey("Spc", "Select ")+helpKey("a", "All ")+helpKey("←", "Back ")+helpKey("Esc", "Close"))
+	help := helpKey("↑↓", "Navigate ") + helpKey("Enter", "Open ") + helpKey("Spc", "Select ") + helpKey("a", "All ") + helpKey("←", "Back ")
+	if len(m.fileBrowser.selected) > 0 {
+		help += helpKey("R", "Replace ")
+	}
+	help += helpKey("Esc", "Close")
+	lines = append(lines, "", help)
 
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }

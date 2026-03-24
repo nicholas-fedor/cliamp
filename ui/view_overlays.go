@@ -208,7 +208,7 @@ func (m Model) renderQueueOverlay() string {
 
 	lines = padLines(lines, maxVisible, rendered)
 	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d queued", len(tracks))))
-	lines = append(lines, "", helpKey("↑↓", "Navigate ")+helpKey("d", "Remove ")+helpKey("c", "Clear ")+helpKey("Esc", "Close"))
+	lines = append(lines, "", helpKey("↑↓", "Navigate ")+helpKey("Shift+↑↓", "Reorder ")+helpKey("d", "Remove ")+helpKey("c", "Clear ")+helpKey("Esc", "Close"))
 
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
@@ -311,7 +311,7 @@ func (m Model) renderNetSearchOverlay() string {
 		"",
 		playlistSelectedStyle.Render("  Search: " + m.netSearch.query + "_"),
 		"",
-		helpKey("Enter", "Search & Queue ") + helpKey("Esc", "Cancel"),
+		helpKey("Enter", "Search & Queue ") + helpKey("Ctrl+K", "Keys ") + helpKey("Esc", "Cancel"),
 	}
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
