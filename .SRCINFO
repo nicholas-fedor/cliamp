@@ -1,6 +1,6 @@
 pkgbase = cliamp
 	pkgdesc = Retro terminal music player with Spotify, YouTube, Navidrome, and Plex support
-	pkgver = 1.27.1+main
+	pkgver = 1.27.1
 	pkgrel = 1
 	url = https://github.com/nicholas-fedor/cliamp
 	arch = x86_64
@@ -17,7 +17,7 @@ pkgbase = cliamp
 	optdepends = yt-dlp: YouTube, SoundCloud, Bandcamp, and Bilibili playback
 	optdepends = pipewire-alsa: audio output on PipeWire systems
 	optdepends = pulseaudio-alsa: audio output on PulseAudio systems
-	source = cliamp-1.27.1+main.tar.gz::https://github.com/nicholas-fedor/cliamp/archive/refs/heads/main.tar.gz
+	source = git+https://github.com/nicholas-fedor/cliamp.git#branch=main
 	sha256sums = SKIP
 
 pkgname = cliamp

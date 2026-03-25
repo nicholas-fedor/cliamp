@@ -1,7 +1,7 @@
 # Maintainer: nicholas-fedor <nick@nicholasfedor.com>
 pkgname=cliamp
 _basever=1.27.1
-pkgver=1.27.1+main
+pkgver=1.27.1
 pkgrel=1
 pkgdesc="Retro terminal music player with Spotify, YouTube, Navidrome, and Plex support"
 arch=("x86_64" "aarch64")
@@ -15,21 +15,25 @@ optdepends=(
     "pipewire-alsa: audio output on PipeWire systems"
     "pulseaudio-alsa: audio output on PulseAudio systems"
 )
-source=("${pkgname}-${pkgver}.tar.gz::https://github.com/nicholas-fedor/${pkgname}/archive/refs/heads/main.tar.gz")
-sha256sums=("SKIP")
+source=("git+https://github.com/nicholas-fedor/${pkgname}.git#branch=main")
+sha256sums=('SKIP')
 
-# Locate the extracted source directory (named cliamp-<branch>).
+# Locate the checked-out source directory.
 _srcdir() {
-    find "${srcdir}" -maxdepth 1 -mindepth 1 -type d -name 'cliamp-*' -print -quit
+    find "${srcdir}" -maxdepth 1 -mindepth 1 -type d -name "${pkgname}" -print -quit
 }
 
 pkgver() {
-    # Branch tarballs from GitHub use the branch name as the directory suffix
-    # (e.g., cliamp-main). Append it to the base version.
-    local _dir="$(_srcdir)"
-    local _branch="${_dir##*-}"
+    cd "$(_srcdir)"
 
-    printf '%s+%s' "${_basever}" "${_branch}"
+    # Produce a version like: 1.27.1.r284.g1aaeac4
+    # (base version + commit count + abbreviated hash).
+    # Arch pkgver disallows hyphens, so use dots as separators.
+    local _rev _sha
+    _rev="$(git rev-list --count HEAD)"
+    _sha="$(git rev-parse --short HEAD)"
+
+    printf '%s.r%s.g%s' "${_basever}" "${_rev}" "${_sha}"
 }
 
 prepare() {
@@ -45,9 +49,10 @@ prepare() {
 build() {
     cd "$(_srcdir)"
 
-    local _branch
-    _branch="$(basename "$(_srcdir)")"
-    _branch="${_branch##*-}"
+    local _rev _sha _version
+    _rev="$(git rev-list --count HEAD)"
+    _sha="$(git rev-parse --short HEAD)"
+    _version="v${_basever}.r${_rev}.g${_sha}"
 
     export GOPATH="${srcdir}/go"
     export GO111MODULE=on
@@ -56,7 +61,7 @@ build() {
 
     go build \
         -buildmode=pie \
-        -ldflags "-s -w -X main.version=v${_basever}+${_branch} -linkmode=external" \
+        -ldflags "-s -w -X main.version=${_version} -linkmode=external" \
         -o "${pkgname}" \
         .
 }
