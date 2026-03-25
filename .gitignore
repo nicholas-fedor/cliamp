@@ -7,3 +7,7 @@ spotify.log
 .DS_Store
 docs/ideas.md
 .worktrees/
+/src/
+/pkg/
+*.tar.gz
+*.pkg.tar.zst
