@@ -47,7 +47,7 @@ require (
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
-	github.com/googleapis/gax-go/v2 v2.20.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.21.0 // indirect
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/icza/bitio v1.1.0 // indirect
 	github.com/jfreymuth/pulse v0.1.2-0.20250227192922-7a016f9e4952 // indirect
