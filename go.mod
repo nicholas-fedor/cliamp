@@ -14,7 +14,7 @@ require (
 	github.com/madelynnblue/go-dsp v1.0.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/text v0.35.0
-	google.golang.org/api v0.274.0
+	google.golang.org/api v0.275.0
 )
 
 require (
