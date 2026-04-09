@@ -13,7 +13,7 @@ require (
 	github.com/kkdai/youtube/v2 v2.10.6
 	github.com/madelynnblue/go-dsp v1.0.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/text v0.35.0
+	golang.org/x/text v0.36.0
 	google.golang.org/api v0.275.0
 )
 
